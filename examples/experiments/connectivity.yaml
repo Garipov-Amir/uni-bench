@@ -1,0 +1,14 @@
+# IF4 connectivity sweep: SafeLog-like graphs from a spanning tree to the full grid.
+name: connectivity
+output: results/connectivity
+instances:
+  - generate: {kind: safelog, rows: 20, cols: 20, count: 2, seed: 0}
+    family: IF4
+    split: all
+team_sizes: [1, 4]
+start_configs: [dispersed, clustered]
+planners: [stc, mstc, darp_stc, darp_bf]
+seeds: 5
+repetitions: 3
+workers: 4
+task: {time_limit: 120}

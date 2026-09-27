@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>__TITLE__</title>
+<style>
+:root{--page:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;--muted:#898781;--grid:#e1e0d9;
+--border:rgba(11,11,11,.10);--free:#fcfcfb;--obst:#c3c2b7;--c1:#b7d3f6;--c2:#5598e7;--c3:#1c5cab;--layer:#52514e;
+--accent:#2a78d6}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--page:#0d0d0d;--surface:#1a1a19;--ink:#fff;
+--ink2:#c3c2b7;--grid:#2c2c2a;--border:rgba(255,255,255,.10);--free:#1a1a19;--obst:#383835;--c1:#184f95;--c2:#3987e5;
+--c3:#9ec5f4;--layer:#c3c2b7;--accent:#3987e5}}
+:root[data-theme="dark"]{--page:#0d0d0d;--surface:#1a1a19;--ink:#fff;--ink2:#c3c2b7;--grid:#2c2c2a;
+--border:rgba(255,255,255,.10);--free:#1a1a19;--obst:#383835;--c1:#184f95;--c2:#3987e5;--c3:#9ec5f4;--layer:#c3c2b7;
+--accent:#3987e5}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+header{position:sticky;top:0;z-index:2;background:var(--page);border-bottom:1px solid var(--grid);padding:10px 16px}
+h1{font-size:17px;margin:0 0 6px}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+button,select{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--border);border-radius:6px;
+padding:4px 10px;cursor:pointer}
+input[type=range]{flex:1;min-width:160px;accent-color:var(--accent)}
+.time{font-variant-numeric:tabular-nums;color:var(--ink2);min-width:120px}
+label.tg{font-size:12.5px;color:var(--ink2);display:inline-flex;gap:4px;align-items:center}
+main{padding:12px 16px 40px;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:14px}
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px}
+.panel h2{font-size:14px;margin:0 0 2px}.sub{font-size:12px;color:var(--muted);margin-bottom:6px}
+canvas{width:100%;display:block;border-radius:6px;background:var(--obst)}
+dl{display:grid;grid-template-columns:auto auto auto auto;gap:2px 10px;margin:8px 0 0;font-size:12px;
+font-variant-numeric:tabular-nums}dt{color:var(--muted)}dd{margin:0;color:var(--ink)}
+.legend{display:flex;flex-wrap:wrap;gap:10px;font-size:12px;color:var(--ink2);margin-top:6px}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.rob{display:flex;flex-wrap:wrap;gap:8px;font-size:12px;color:var(--ink2);margin-top:4px}
+.note{font-size:12px;color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title"></h1>
+  <div class="row">
+    <button id="play" aria-label="play or pause">▶ Play</button>
+    <input id="slider" type="range" min="0" max="1000" value="0" aria-label="time">
+    <span class="time" id="tlabel"></span>
+    <select id="speed" aria-label="replay speed"><option value="40">slow</option><option value="20" selected>normal</option>
+      <option value="8">fast</option></select>
+    <select id="mode" aria-label="colouring"><option value="count">coverage count n(x)</option>
+      <option value="owner">work distribution</option></select>
+  </div>
+  <div class="row" id="toggles" style="margin-top:6px"></div>
+  <div class="legend" id="legend"></div>
+</header>
+<main id="panels"></main>
+<p class="note" style="padding:0 16px 24px">The simulator replays stored, re-timed trajectories and the evaluator's stored
+sweep events; it computes no metrics. Displayed numbers are copied from the run records.</p>
+<script type="application/json" id="data">__DATA__</script>
+<script>
+(function(){
+const D = JSON.parse(document.getElementById('data').textContent);
+const SERIES = ['#2a78d6','#eb6834','#1baf7a','#eda100','#e87ba4','#008300','#4a3aa7','#e34948'];
+const robColor = k => k < SERIES.length ? SERIES[k] : '#898781';
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const b64 = (s, T) => { if(!s) return new T(0); const b = atob(s); const u = new Uint8Array(b.length);
+  for (let i=0;i<b.length;i++) u[i]=b.charCodeAt(i); return new T(u.buffer); };
+document.getElementById('title').textContent = `Replay · ${D.instance.id} (${D.instance.family})`;
+const [bx0, by0, bx1, by1] = D.instance.bounds;
+let T = 0;
+for (const p of D.panels) for (const r of p.robots) T = Math.max(T, r.t[r.t.length-1] || 0);
+const layerNames = [...new Set(D.panels.flatMap(p => p.layers.map(l => l.name)))];
+const shown = new Set(['swaths','partition','spanning_tree']);
+const tg = document.getElementById('toggles');
+for (const n of layerNames) {
+  const l = document.createElement('label'); l.className='tg';
+  const c = document.createElement('input'); c.type='checkbox'; c.checked = shown.has(n);
+  c.onchange = () => { c.checked ? shown.add(n) : shown.delete(n); drawAll(); };
+  l.append(c, document.createTextNode(n)); tg.append(l);
+}
+const legend = document.getElementById('legend');
+function drawLegend(){
+  const mode = document.getElementById('mode').value;
+  legend.innerHTML = mode === 'count'
+    ? `<span><i class="sw" style="background:${css('--c1')}"></i>1 sweep</span><span><i class="sw" style="background:${css('--c2')}"></i>2 sweeps</span><span><i class="sw" style="background:${css('--c3')}"></i>≥3 sweeps</span><span><i class="sw" style="background:${css('--obst')}"></i>obstacle / outside</span>`
+    : `<span>cells coloured by the robot that swept them first</span>`;
+}
+const fmt = v => v === null || v === undefined ? '–' : (typeof v === 'number' ? (Math.abs(v) >= 1000 ? v.toFixed(0) : v.toPrecision(4)) : v);
+const panels = [];
+const main = document.getElementById('panels');
+for (const P of D.panels) {
+  const div = document.createElement('div'); div.className='panel';
+  const h = document.createElement('h2'); h.textContent = P.planner + (P.composition ? ' (composition)' : '');
+  const sub = document.createElement('div'); sub.className='sub';
+  sub.textContent = `outcome: ${P.outcome} · config: ${P.config} · seed: ${P.seed} · run ${P.run_id}`;
+  const cv = document.createElement('canvas');
+  const rob = document.createElement('div'); rob.className='rob';
+  P.robots.forEach((r,k) => { const s=document.createElement('span'); s.innerHTML=`<i class="sw" style="background:${robColor(k)}"></i>${r.id}`; rob.append(s); });
+  const dl = document.createElement('dl');
+  for (const [k,v] of Object.entries(P.metrics)) { const dt=document.createElement('dt'); dt.textContent=k.replace(/_/g,' '); const dd=document.createElement('dd'); dd.textContent=fmt(v); dl.append(dt,dd); }
+  div.append(h, sub, cv, rob, dl); main.append(div);
+  const st = {P, cv, ptr: 0, tcur: -1};
+  if (P.grid && P.events) {
+    st.cell = b64(P.events.cell, Uint32Array); st.t = b64(P.events.t, Float32Array); st.rob = b64(P.events.robot, Uint8Array);
+    st.cnt = new Uint16Array(P.grid.nx * P.grid.ny); st.first = new Uint8Array(P.grid.nx * P.grid.ny).fill(255);
+    st.off = document.createElement('canvas'); st.off.width = P.grid.nx; st.off.height = P.grid.ny;
+    st.img = st.off.getContext('2d').createImageData(P.grid.nx, P.grid.ny);
+  }
+  for (const r of P.robots) { r.T = Float64Array.from(r.t); }
+  panels.push(st);
+}
+function hex(c){ c=c.replace('#',''); return [parseInt(c.slice(0,2),16),parseInt(c.slice(2,4),16),parseInt(c.slice(4,6),16)]; }
+function sizeCanvas(st){
+  const w = st.cv.clientWidth || 400; const dpr = window.devicePixelRatio || 1;
+  const aspect = (by1-by0)/(bx1-bx0 || 1);
+  st.cv.width = Math.round(w*dpr); st.cv.height = Math.round(w*aspect*dpr);
+  st.cv.style.height = (w*aspect)+'px';
+  const pad = 6*dpr; const s = Math.min((st.cv.width-2*pad)/(bx1-bx0), (st.cv.height-2*pad)/(by1-by0));
+  st.s = s; st.ox = pad - bx0*s + (st.cv.width-2*pad-(bx1-bx0)*s)/2; st.oy = st.cv.height - pad + by0*s - (st.cv.height-2*pad-(by1-by0)*s)/2;
+}
+const X = (st,x) => st.ox + x*st.s, Y = (st,y) => st.oy - y*st.s;
+function polyPath(ctx, st, poly){ for (const ring of poly){ ctx.moveTo(X(st,ring[0][0]),Y(st,ring[0][1])); for (let i=1;i<ring.length;i++) ctx.lineTo(X(st,ring[i][0]),Y(st,ring[i][1])); ctx.closePath(); } }
+function advance(st, t){
+  if (!st.cnt) return;
+  if (t < st.tcur) { st.cnt.fill(0); st.first.fill(255); st.ptr = 0; }
+  const n = st.t.length;
+  while (st.ptr < n && st.t[st.ptr] <= t) { const c = st.cell[st.ptr]; st.cnt[c]++; if (st.first[c]===255) st.first[c]=st.rob[st.ptr]; st.ptr++; }
+  st.tcur = t;
+  const mode = document.getElementById('mode').value;
+  const cols = [null, hex(css('--c1')), hex(css('--c2')), hex(css('--c3'))];
+  const d = st.img.data, g = st.P.grid;
+  for (let i=0;i<g.ny;i++) for (let j=0;j<g.nx;j++) {
+    const c = i*g.nx+j, o = ((g.ny-1-i)*g.nx+j)*4, k = st.cnt[c];
+    if (!k) { d[o+3]=0; continue; }
+    const col = mode==='count' ? cols[Math.min(k,3)] : hex(robColor(st.first[c]));
+    d[o]=col[0]; d[o+1]=col[1]; d[o+2]=col[2]; d[o+3]= mode==='count' ? 255 : 170;
+  }
+  st.off.getContext('2d').putImageData(st.img,0,0);
+}
+function robotAt(r, t){
+  const T = r.T; if (t <= T[0]) return [r.xy[0][0], r.xy[0][1], 0];
+  let lo=0, hi=T.length-1; if (t >= T[hi]) return [r.xy[hi][0], r.xy[hi][1], hi];
+  while (hi-lo>1){ const m=(lo+hi)>>1; if (T[m] <= t) lo=m; else hi=m; }
+  const a = (T[hi]-T[lo]) > 0 ? (t-T[lo])/(T[hi]-T[lo]) : 0;
+  return [r.xy[lo][0]+a*(r.xy[hi][0]-r.xy[lo][0]), r.xy[lo][1]+a*(r.xy[hi][1]-r.xy[lo][1]), lo];
+}
+function drawLayer(ctx, st, L){
+  ctx.save(); ctx.lineWidth = 1; const lc = css('--layer');
+  const color = k => k === undefined || k < 0 ? lc : robColor(k);
+  if (L.type==='cells' || L.type==='labels'){
+    const g=L.grid; ctx.globalAlpha = L.type==='labels' ? 0.28 : 0.5;
+    L.cells.forEach((c,n) => { const i=Math.floor(c/g.nx), j=c%g.nx; const x=g.x0+j*g.res, y=g.y0+i*g.res;
+      if (L.type==='labels'){ ctx.fillStyle=color(L.labels[n]); ctx.fillRect(X(st,x),Y(st,y+g.res),g.res*st.s,g.res*st.s); }
+      else { ctx.strokeStyle=lc; ctx.strokeRect(X(st,x)+.5,Y(st,y+g.res)+.5,g.res*st.s-1,g.res*st.s-1); } });
+  } else if (L.type==='polygons'){
+    ctx.strokeStyle = lc; ctx.setLineDash([4,3]); ctx.beginPath(); for (const p of L.polys) polyPath(ctx, st, p); ctx.stroke();
+  } else if (L.type==='lines'){
+    ctx.globalAlpha = 0.8;
+    L.lines.forEach((ln,n) => { ctx.strokeStyle = color(L.labels ? L.labels[n] : undefined); ctx.beginPath();
+      ctx.moveTo(X(st,ln[0][0]),Y(st,ln[0][1])); for (let i=1;i<ln.length;i++) ctx.lineTo(X(st,ln[i][0]),Y(st,ln[i][1])); ctx.stroke(); });
+  } else if (L.type==='points'){
+    L.points.forEach((p,n) => { ctx.fillStyle = color(L.labels ? L.labels[n] : undefined); ctx.fillRect(X(st,p[0])-1.5,Y(st,p[1])-1.5,3,3); });
+  }
+  ctx.restore();
+}
+function draw(st, t){
+  const ctx = st.cv.getContext('2d'); const dpr = window.devicePixelRatio || 1;
+  ctx.clearRect(0,0,st.cv.width,st.cv.height);
+  ctx.fillStyle = css('--free'); ctx.beginPath(); for (const p of D.instance.free) polyPath(ctx, st, p); ctx.fill('evenodd');
+  advance(st, t);
+  if (st.off){ const g = st.P.grid; ctx.save(); ctx.imageSmoothingEnabled=false; ctx.beginPath(); for (const p of D.instance.free) polyPath(ctx, st, p); ctx.clip('evenodd');
+    ctx.drawImage(st.off, X(st,g.x0), Y(st,g.y0+g.ny*g.res), g.nx*g.res*st.s, g.ny*g.res*st.s); ctx.restore(); }
+  for (const L of st.P.layers) if (shown.has(L.name)) drawLayer(ctx, st, L);
+  st.P.robots.forEach((r,k) => {
+    const [x,y,idx] = robotAt(r,t); const c = robColor(k);
+    ctx.strokeStyle = c; ctx.lineWidth = 1.5*dpr; ctx.globalAlpha = .9; ctx.beginPath();
+    ctx.moveTo(X(st,r.xy[0][0]),Y(st,r.xy[0][1])); for (let i=1;i<=idx;i++) ctx.lineTo(X(st,r.xy[i][0]),Y(st,r.xy[i][1])); ctx.lineTo(X(st,x),Y(st,y)); ctx.stroke();
+    ctx.globalAlpha = 1; const rad = Math.max(3*dpr, (D.instance.radius[k]||0.5)*st.s);
+    ctx.fillStyle = c; ctx.beginPath(); ctx.arc(X(st,x),Y(st,y),rad,0,2*Math.PI); ctx.fill();
+    ctx.strokeStyle = css('--free'); ctx.lineWidth = 2*dpr; ctx.stroke();
+  });
+}
+let t = 0, playing = false, last = null;
+const slider = document.getElementById('slider'), tlabel = document.getElementById('tlabel');
+function drawAll(){ for (const st of panels) draw(st, t); tlabel.textContent = `t = ${t.toFixed(1)} / ${T.toFixed(1)} s`; slider.value = Math.round(1000*t/(T||1)); }
+function frame(ts){ if (!playing) return; if (last !== null){ const dur = +document.getElementById('speed').value; t = Math.min(T, t + (ts-last)/1000 * T/dur); }
+  last = ts; drawAll(); if (t >= T){ playing=false; document.getElementById('play').textContent='▶ Play'; return; } requestAnimationFrame(frame); }
+document.getElementById('play').onclick = () => { playing = !playing; last = null; if (playing && t >= T) t = 0;
+  document.getElementById('play').textContent = playing ? '❚❚ Pause' : '▶ Play'; if (playing) requestAnimationFrame(frame); };
+slider.oninput = () => { t = T * slider.value / 1000; drawAll(); };
+document.getElementById('mode').onchange = () => { for (const st of panels) st.tcur = Infinity; drawLegend(); drawAll(); };
+function resize(){ for (const st of panels) { sizeCanvas(st); } drawAll(); }
+window.addEventListener('resize', resize);
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { for (const st of panels) st.tcur = Infinity; drawLegend(); drawAll(); });
+t = T; drawLegend(); resize();
+})();
+</script>
+</body>
+</html>

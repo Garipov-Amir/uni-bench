@@ -1,0 +1,15 @@
+# Small end-to-end experiment on generated instances (a few minutes on a laptop).
+name: quick
+output: results/quick
+instances:
+  - generate: {kind: synthetic, count: 3, sizes: [20, 30], densities: [0.05, 0.1], base_seed: 1}
+    family: IF5
+    split: all               # use every generated instance (no tuning in this example)
+team_sizes: [1, 2, 4]
+start_configs: [dispersed]
+planners: [stc, mstc, darp_stc, darp_bf, swath_bf, bcd, kmeans_tsp]
+seeds: 3                     # stochastic planners: seeds from the fixed shared list
+repetitions: 3               # deterministic planners: timing repetitions (median reported)
+workers: 4
+task: {time_limit: 60, tolerance: 0.02}
+evaluation: {resolution_factor: 0.1, sensitivity: true}

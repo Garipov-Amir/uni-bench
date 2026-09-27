@@ -1,0 +1,16 @@
+# Agricultural profile on IF2 fields: capacity (depot trips), minimum turning radius and
+# headlands.  Planners without these constraints are recorded as not applicable.
+name: agricultural
+output: results/agricultural
+instances:
+  - {path: data/IF2, split: all}
+team_sizes: [1, 2, 4]
+start_configs: [dispersed]
+profiles: [agricultural]
+profile_params:
+  agricultural: {min_turn_radius: 2.0, capacity: 0.25, tool_length: 0.2, return_to_depot: true}
+planners: [swath_bf, bcd, darp_stc]
+seeds: 5
+repetitions: 3
+workers: 4
+task: {time_limit: 300}

@@ -1,0 +1,16 @@
+# Resolution sensitivity (R10): the planning resolution delta_p of grid planners is varied
+# relative to the working width while the evaluation resolution stays fixed.
+name: resolution
+output: results/resolution
+instances:
+  - generate: {kind: synthetic, count: 5, sizes: [30], densities: [0.1], base_seed: 3}
+    family: IF5
+    split: all
+team_sizes: [2]
+start_configs: [dispersed]
+planners: [mstc, darp_stc, darp_bf]
+factors: {planning_resolution: [0.5, 0.75, 1.0]}
+seeds: 5
+repetitions: 3
+workers: 4
+task: {time_limit: 120}

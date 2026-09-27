@@ -1,0 +1,40 @@
+# Core profile over all instance families (run `scripts/fetch_datasets.sh` and the imports first):
+#   uninbench import areacoverage datasets/AreaCoverage-dataset --out data/IF1 --stratify holes
+#   uninbench import fields datasets/fields --out data/IF2
+#   uninbench import rooms datasets/test_maps --out data/IF3
+#   uninbench generate safelog --out data/IF4 --count 1 --stratify graph_density
+#   uninbench generate synthetic --out data/IF5 --count 10 --sizes 20 40 80 --densities 0.05 0.1 0.2 --stratify obstacle_density
+# Then tune on the tuning split and run on the test split:
+#   uninbench tune examples/experiments/core.yaml --budget 30
+#   uninbench run examples/experiments/core.yaml
+#   uninbench report results/core
+name: core
+output: results/core
+tuning_dir: results/tuning
+instances:
+  - {path: data/IF1}
+  - {path: data/IF2}
+  - {path: data/IF3}
+  - {path: data/IF4}
+  - {path: data/IF5}
+split: test
+team_sizes: [1, 2, 4, 8, 16, 32]
+start_configs: [clustered, dispersed]
+planners:
+  - {name: stc, configs: [default, tuned]}
+  - {name: mstc, configs: [default, tuned]}
+  - {name: darp_stc, configs: [default, tuned]}
+  - {name: darp_bf, configs: [default, tuned]}
+  - {name: swath_bf, configs: [default, tuned]}
+  - {name: bcd, configs: [default, tuned]}
+  - {name: kmeans_tsp, configs: [default, tuned]}
+adapters:                    # fixed per experiment and shared by all planners of a family
+  grid: {rule: center, connectivity: 4}
+  swath: {angle: auto, perimeter: true}
+  target: {lattice: square}
+seeds: 20
+repetitions: 5
+eps_max: 0.05
+workers: 8
+task: {time_limit: 300, memory_limit_mb: 8192, tolerance: 0.02}
+evaluation: {resolution_factor: 0.1, sensitivity: true, max_refinements: 1}

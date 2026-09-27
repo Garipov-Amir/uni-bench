@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "scratch-server",
+      "runtimeExecutable": "/Users/amirgaripov/dev/unin-bench/.venv/bin/python",
+      "runtimeArgs": ["-m", "http.server", "8765", "--directory", "/Users/amirgaripov/dev/unin-bench/.scratch"],
+      "port": 8765
+    }
+  ]
+}

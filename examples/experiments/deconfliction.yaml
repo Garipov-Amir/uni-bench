@@ -1,0 +1,15 @@
+# Deconfliction profile: inter-robot conflicts are hard constraints (planners insert waits).
+name: deconfliction
+output: results/deconfliction
+instances:
+  - generate: {kind: synthetic, count: 3, sizes: [30], densities: [0.08], base_seed: 9}
+    family: IF5
+    split: all
+team_sizes: [2, 4, 8]
+start_configs: [clustered]
+profiles: [deconfliction]
+planners: [mstc, darp_stc, swath_bf, bcd, kmeans_tsp]
+seeds: 5
+repetitions: 3
+workers: 4
+task: {time_limit: 120}
