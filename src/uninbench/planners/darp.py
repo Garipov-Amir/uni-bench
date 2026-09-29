@@ -392,7 +392,8 @@ class DARPBF(_DARPBase):
         mode="staged",
         stages=["coarse_regions", "darp", "bf_per_region"],
         composition_of=["darp", "boustrophedon"],
-        hyperparameters=DARP_PARAMS + [HyperParam("sweep", "categorical", "rows", choices=["rows", "cols"])],
+        hyperparameters=DARP_PARAMS + [HyperParam("sweep", "categorical", "rows", choices=["rows", "cols"],
+                                                     doc="back-and-forth along rows or columns of sub-cells")],
         core_modules=["uninbench/planners/darp.py", "uninbench/planners/grid_common.py"],
         description="Staged composition: DARP work distribution with back-and-forth route construction.",
     )

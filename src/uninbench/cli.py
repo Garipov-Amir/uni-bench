@@ -147,19 +147,19 @@ def cmd_evaluate(a):
 def cmd_report(a):
     from .reporting import build_report
 
-    print(build_report(a.results, a.out))
+    print("report:", build_report(a.results, a.out))
 
 
 def cmd_replay(a):
     from .simulator import build_replay
 
-    print(build_replay(a.results, a.instance, a.planners or None, a.out, a.max_cells))
+    print("replay:", build_replay(a.results, a.instance, a.planners or None, a.out, a.max_cells))
 
 
 def cmd_figure(a):
     from .simulator import plot_run
 
-    print(plot_run(a.results, a.run_id, a.out))
+    print("figure:", plot_run(a.results, a.run_id, a.out))
 
 
 def cmd_demo(a):
@@ -188,127 +188,179 @@ def cmd_demo(a):
     print("replay:", build_replay(out / "results"))
 
 
+def cmd_tui(a):
+    try:
+        from .app.tui import run_tui
+    except ImportError as e:  # pragma: no cover - textual is a declared dependency
+        print(f"The terminal UI needs the 'textual' package ({e}). Install it with: pip install textual",
+              file=sys.stderr)
+        return 1
+    run_tui(a.workspace)
+
+
+def cmd_web(a):
+    from .app.server import serve
+
+    serve(a.workspace, a.host, a.port, open_browser=a.open)
+
+
+def cmd_init(a):
+    from .app.workspace import Workspace
+
+    ws = Workspace(a.dir)
+    made = ws.init(example=not a.no_example)
+    print(f"workspace {ws.root}: " + (", ".join(made) if made else "already initialized"))
+
+
 # ------------------------------------------------------------------ parser
 def build_parser() -> argparse.ArgumentParser:
-    ap = argparse.ArgumentParser(prog="uninbench", description="Unified benchmark for multi-robot coverage path "
-                                                                "planning")
-    sub = ap.add_subparsers(dest="cmd", required=True)
+    ap = argparse.ArgumentParser(
+        prog="uninbench",
+        description="Unified benchmark for multi-robot coverage path planning. Run without arguments to open the "
+                    "terminal UI; the subcommands below are the headless interface for scripts and clusters.")
+    sub = ap.add_subparsers(dest="cmd")
+
+    s = sub.add_parser("tui", help="open the terminal user interface (default when no command is given)")
+    s.add_argument("-w", "--workspace", default=".", help="workspace directory (default: current directory)")
+    s.set_defaults(fn=cmd_tui)
+
+    s = sub.add_parser("web", help="serve the browser user interface for a workspace")
+    s.add_argument("-w", "--workspace", default=".", help="workspace directory (default: current directory)")
+    s.add_argument("--host", default="127.0.0.1", help="interface to bind (default: localhost only)")
+    s.add_argument("--port", type=int, default=8350, help="TCP port (default: 8350)")
+    s.add_argument("--open", action="store_true", help="open the browser")
+    s.set_defaults(fn=cmd_web)
+
+    s = sub.add_parser("init", help="create a workspace (data/, experiments/, results/, ...)")
+    s.add_argument("dir", nargs="?", default=".", help="workspace directory (default: current directory)")
+    s.add_argument("--no-example", action="store_true", help="do not create experiments/quick.yaml")
+    s.set_defaults(fn=cmd_init)
 
     g = sub.add_parser("generate", help="generate synthetic instance families (IF5, IF4-like)")
-    g.add_argument("kind", choices=["synthetic", "safelog"])
-    g.add_argument("--out", required=True)
-    g.add_argument("--count", type=int, default=5)
-    g.add_argument("--seed", type=int, default=0)
-    g.add_argument("--sizes", type=float, nargs="*")
-    g.add_argument("--densities", type=float, nargs="*")
-    g.add_argument("--shapes", nargs="*")
-    g.add_argument("--nonconvexity", type=int, nargs="*")
-    g.add_argument("--aspect", type=float, default=0.75)
-    g.add_argument("--rows", type=int, default=20)
-    g.add_argument("--cols", type=int, default=20)
-    g.add_argument("--cell-size", type=float, default=2.0)
+    g.add_argument("kind", choices=["synthetic", "safelog"],
+                   help="synthetic environments (IF5) or SafeLog-like graphs (IF4)")
+    g.add_argument("--out", required=True, help="output directory for the instance set, e.g. data/IF5")
+    g.add_argument("--count", type=int, default=5, help="instances per factor combination (default: 5)")
+    g.add_argument("--seed", type=int, default=0, help="base seed; every instance stores its own seed")
+    g.add_argument("--sizes", type=float, nargs="*", help="synthetic: environment widths in metres")
+    g.add_argument("--densities", type=float, nargs="*",
+                   help="synthetic: obstacle area fractions; safelog: edge densities (default: 21-step sweep)")
+    g.add_argument("--shapes", nargs="*", help="synthetic: obstacle shapes (rect, polygon, circle, mixed)")
+    g.add_argument("--nonconvexity", type=int, nargs="*", help="synthetic: numbers of boundary notches")
+    g.add_argument("--aspect", type=float, default=0.75, help="synthetic: height / width (default: 0.75)")
+    g.add_argument("--rows", type=int, default=20, help="safelog: lattice rows (default: 20)")
+    g.add_argument("--cols", type=int, default=20, help="safelog: lattice columns (default: 20)")
+    g.add_argument("--cell-size", type=float, default=2.0, help="safelog: cell size in metres (default: 2)")
     g.add_argument("--param", action="append", help="generator parameter key=value")
-    g.add_argument("--tuning-fraction", type=float, default=0.2)
+    g.add_argument("--tuning-fraction", type=float, default=0.2, help="share of the tuning split (default: 0.2)")
     g.add_argument("--stratify", default=None, help="factor to stratify the split by")
     g.set_defaults(fn=cmd_generate)
 
     i = sub.add_parser("import", help="import a public dataset into canonical instances")
-    i.add_argument("dataset", choices=["areacoverage", "fields", "rooms", "safelog"])
-    i.add_argument("src")
-    i.add_argument("--out", required=True)
+    i.add_argument("dataset", choices=["areacoverage", "fields", "rooms", "safelog"], help="dataset format")
+    i.add_argument("src", help="directory (or file) with the raw dataset")
+    i.add_argument("--out", required=True, help="output directory for the instance set, e.g. data/IF1")
     i.add_argument("--param", action="append", help="importer parameter key=value (e.g. width=3.0)")
-    i.add_argument("--tuning-fraction", type=float, default=0.2)
-    i.add_argument("--stratify", default=None)
+    i.add_argument("--tuning-fraction", type=float, default=0.2, help="share of the tuning split (default: 0.2)")
+    i.add_argument("--stratify", default=None, help="factor to stratify the split by")
     i.set_defaults(fn=cmd_import)
 
     s = sub.add_parser("split", help="(re)assign tuning/test splits of a directory")
-    s.add_argument("dir")
-    s.add_argument("--tuning-fraction", type=float, default=0.2)
-    s.add_argument("--stratify", default=None)
+    s.add_argument("dir", help="instance set directory")
+    s.add_argument("--tuning-fraction", type=float, default=0.2, help="share of the tuning split (default: 0.2)")
+    s.add_argument("--stratify", default=None, help="factor to stratify the split by")
     s.set_defaults(fn=cmd_split)
 
     s = sub.add_parser("info", help="describe instances")
-    s.add_argument("instances", nargs="+")
+    s.add_argument("instances", nargs="+", help="instance JSON files")
     s.set_defaults(fn=cmd_info)
 
     s = sub.add_parser("planners", help="list registered planners and their manifests")
-    s.add_argument("--json", action="store_true")
+    s.add_argument("--json", action="store_true", help="print full manifests as JSON")
     s.set_defaults(fn=cmd_planners)
 
     s = sub.add_parser("adapt", help="run an adapter on an instance and print its transformation record")
-    s.add_argument("instance")
-    s.add_argument("--adapter", default="grid")
-    s.add_argument("--param", action="append")
-    s.add_argument("--team-size", type=int)
-    s.add_argument("--start-config", default="dispersed")
-    s.add_argument("--eps-max", type=float, default=0.05)
+    s.add_argument("instance", help="instance JSON file")
+    s.add_argument("--adapter", default="grid", help="grid, graph, geometric, swath or target (default: grid)")
+    s.add_argument("--param", action="append", help="adapter parameter key=value (repeatable)")
+    s.add_argument("--team-size", type=int, help="derive a team of this size first")
+    s.add_argument("--start-config", default="dispersed", help="clustered or dispersed (default: dispersed)")
+    s.add_argument("--eps-max", type=float, default=0.05, help="fidelity tolerance (default: 0.05)")
     s.set_defaults(fn=cmd_adapt)
 
     s = sub.add_parser("validate", help="validate planner implementations (worked examples)")
-    s.add_argument("--planner", action="append")
+    s.add_argument("--planner", action="append", help="validate only this planner (repeatable)")
     s.add_argument("--out", default=None, help="directory for validation reports")
     s.set_defaults(fn=cmd_validate)
 
     s = sub.add_parser("check-evaluator", help="re-evaluate AreaCoverage reference routes (sanity check)")
-    s.add_argument("src")
-    s.add_argument("--subsets", nargs="*")
-    s.add_argument("--limit", type=int)
-    s.add_argument("--flag-convention", choices=["from", "to"], default="from")
-    s.add_argument("--out", default=None)
+    s.add_argument("src", help="AreaCoverage-dataset directory")
+    s.add_argument("--subsets", nargs="*", help="VM25, AC300, H2, RAL_main (default: all present)")
+    s.add_argument("--limit", type=int, help="at most this many instances per subset")
+    s.add_argument("--flag-convention", choices=["from", "to"], default="from",
+                   help="meaning of the route flag column (default: from)")
+    s.add_argument("--out", default=None, help="write the check report (JSON) here")
     s.set_defaults(fn=cmd_check_evaluator)
 
     s = sub.add_parser("run", help="run an experiment")
-    s.add_argument("config")
-    s.add_argument("--workers", type=int)
-    s.add_argument("--inline", action="store_true", help="run in-process (debugging)")
-    s.add_argument("--no-resume", action="store_true")
-    s.add_argument("--output")
+    s.add_argument("config", help="experiment configuration (YAML)")
+    s.add_argument("--workers", type=int, help="worker processes (default: from the configuration)")
+    s.add_argument("--inline", action="store_true", help="run in-process (debugging; no timeouts)")
+    s.add_argument("--no-resume", action="store_true", help="discard recorded runs and start over")
+    s.add_argument("--output", help="override the output directory")
     s.set_defaults(fn=cmd_run)
 
     s = sub.add_parser("tune", help="tune planners on the tuning split (Bayesian optimisation)")
-    s.add_argument("config")
-    s.add_argument("--budget", type=int, default=20)
-    s.add_argument("--planner", action="append")
-    s.add_argument("--workers", type=int)
-    s.add_argument("--inline", action="store_true")
-    s.add_argument("--seed", type=int, default=0)
-    s.add_argument("--penalty", type=float, default=10.0)
-    s.add_argument("--tuning-seeds", type=int, default=3)
+    s.add_argument("config", help="experiment configuration (YAML); its tuning split is used")
+    s.add_argument("--budget", type=int, default=20, help="evaluations per planner and family (default: 20)")
+    s.add_argument("--planner", action="append", help="tune only this planner (repeatable)")
+    s.add_argument("--workers", type=int, help="worker processes (default: from the configuration)")
+    s.add_argument("--inline", action="store_true", help="run in-process (debugging)")
+    s.add_argument("--seed", type=int, default=0, help="optimiser seed (default: 0)")
+    s.add_argument("--penalty", type=float, default=10.0, help="objective of unsuccessful runs (default: 10)")
+    s.add_argument("--tuning-seeds", type=int, default=3, help="seeds per evaluation for stochastic planners")
     s.set_defaults(fn=cmd_tune)
 
     s = sub.add_parser("evaluate", help="evaluate a trajectory set (common trajectory format) on an instance")
-    s.add_argument("instance")
-    s.add_argument("trajectories")
+    s.add_argument("instance", help="instance JSON file")
+    s.add_argument("trajectories", help="trajectory set JSON (common trajectory format)")
     s.set_defaults(fn=cmd_evaluate)
 
     s = sub.add_parser("report", help="statistical report of a results directory")
-    s.add_argument("results")
-    s.add_argument("--out")
+    s.add_argument("results", help="results directory of an experiment")
+    s.add_argument("--out", help="report directory (default: <results>/report)")
     s.set_defaults(fn=cmd_report)
 
     s = sub.add_parser("replay", help="HTML replay of stored runs (side by side)")
-    s.add_argument("results")
-    s.add_argument("--instance")
-    s.add_argument("--planners", nargs="*")
-    s.add_argument("--out")
-    s.add_argument("--max-cells", type=int, default=320)
+    s.add_argument("results", help="results directory of an experiment")
+    s.add_argument("--instance", help="derived instance id (default: the one with most runs)")
+    s.add_argument("--planners", nargs="*", help="only these planners")
+    s.add_argument("--out", help="output HTML file (default: <results>/replay/<instance>.html)")
+    s.add_argument("--max-cells", type=int, default=320, help="coverage-map display resolution (default: 320)")
     s.set_defaults(fn=cmd_replay)
 
     s = sub.add_parser("figure", help="static figure of one run")
-    s.add_argument("results")
-    s.add_argument("run_id")
-    s.add_argument("--out")
+    s.add_argument("results", help="results directory of an experiment")
+    s.add_argument("run_id", help="run id (see runs.jsonl or report/runs.csv)")
+    s.add_argument("--out", help="output PNG (default: <results>/figures/<run_id>.png)")
     s.set_defaults(fn=cmd_figure)
 
     s = sub.add_parser("demo", help="small end-to-end demonstration")
-    s.add_argument("--out", default="demo")
+    s.add_argument("--out", default="demo", help="output directory (default: demo)")
     s.add_argument("--workers", type=int, default=max(1, min(4, (os.cpu_count() or 2) - 1)))
     s.set_defaults(fn=cmd_demo)
     return ap
 
 
 def main(argv=None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.cmd is None:
+        if sys.stdin.isatty() and sys.stdout.isatty():
+            args = parser.parse_args(["tui"])
+        else:
+            parser.print_help()
+            return 0
     rc = args.fn(args)
     return int(rc or 0)
 

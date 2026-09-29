@@ -119,9 +119,9 @@ class KMeansTSP(Planner):
         stochastic=True,
         distinguishes_service_transit=False,
         hyperparameters=[
-            HyperParam("kmeans_iters", "int", 50, low=5, high=300, log=True),
-            HyperParam("balance", "float", 0.5, low=0.0, high=2.0),
-            HyperParam("two_opt_rounds", "int", 5, low=0, high=30),
+            HyperParam("kmeans_iters", "int", 50, low=5, high=300, log=True, doc="balanced k-means iterations"),
+            HyperParam("balance", "float", 0.5, low=0.0, high=2.0, doc="strength of the cluster-size balancing"),
+            HyperParam("two_opt_rounds", "int", 5, low=0, high=30, doc="2-opt rounds per tour (0 disables 2-opt)"),
         ],
         core_modules=["uninbench/planners/targets.py"],
         description="Balanced k-means over coverage targets and a 2-opt improved tour per cluster.",

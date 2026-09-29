@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="uninbench-token" content="__TOKEN__">
+<title>uninbench</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="side">
+    <div class="brand"><span class="logo">◧</span> uninbench</div>
+    <nav id="nav">
+      <a href="#/dashboard" data-view="dashboard">Dashboard</a>
+      <a href="#/instances" data-view="instances">Instances</a>
+      <a href="#/planners" data-view="planners">Planners</a>
+      <a href="#/experiments" data-view="experiments">Experiments</a>
+      <a href="#/jobs" data-view="jobs">Jobs <span id="nav-running" class="pill hidden"></span></a>
+      <a href="#/results" data-view="results">Results</a>
+    </nav>
+    <div class="side-foot" id="ws-root"></div>
+  </aside>
+  <main id="main" aria-live="polite"></main>
+</div>
+<div id="modal" class="modal hidden" role="dialog" aria-modal="true"><div class="modal-card" id="modal-card"></div></div>
+<div id="toast" class="toast hidden"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

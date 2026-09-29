@@ -199,7 +199,7 @@ SWEEP_PARAMS = [
     HyperParam("pattern", "categorical", "auto", choices=["auto", "nn", "skip"],
                doc="pass order: greedy nearest neighbour, or skip pattern (auto: skip with a turning radius)"),
     HyperParam("two_opt", "bool", True, doc="2-opt improvement of each robot's pass order"),
-    HyperParam("two_opt_rounds", "int", 10, low=1, high=50),
+    HyperParam("two_opt_rounds", "int", 10, low=1, high=50, doc="maximum number of 2-opt improvement rounds"),
 ]
 
 
@@ -235,7 +235,9 @@ class BCD(_SweepPlanner):
         mode="staged",
         stages=["cell_passes", "cell_order", "contiguous_split", "two_opt"],
         hyperparameters=[SERVICE_LINKS, HyperParam("perimeter", "bool", True, doc="boundary-following passes"),
-                         HyperParam("two_opt", "bool", False), HyperParam("two_opt_rounds", "int", 5, low=1, high=50)],
+                         HyperParam("two_opt", "bool", False, doc="2-opt improvement of each robot's pass order"),
+                         HyperParam("two_opt_rounds", "int", 5, low=1, high=50,
+                                    doc="maximum number of 2-opt improvement rounds")],
         core_modules=["uninbench/planners/sweep.py", "uninbench/planners/sweep_common.py"],
         description="Boustrophedon cells swept back and forth; cells ordered greedily; split at pass level.",
     )

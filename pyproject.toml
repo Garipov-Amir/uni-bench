@@ -17,6 +17,7 @@ dependencies = [
     "matplotlib>=3.7",
     "pyyaml>=6.0",
     "pillow>=9.0",
+    "textual>=0.80",
 ]
 
 [project.optional-dependencies]
@@ -29,7 +30,7 @@ uninbench = "uninbench.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-uninbench = ["simulator/*.html", "simulator/*.js"]
+uninbench = ["simulator/*.html", "simulator/*.js", "app/web/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

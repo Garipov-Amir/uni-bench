@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 import time
 from pathlib import Path
@@ -213,7 +214,8 @@ def run_experiment(config, workers: int | None = None, inline: bool | None = Non
     t0 = time.time()
 
     tty = sys.stderr.isatty()
-    step = max(1, len(tasks) // 20)
+    every = os.environ.get("UNINBENCH_PROGRESS_EVERY")  # set to 1 by the UI job runner
+    step = max(1, int(every)) if every and every.isdigit() else max(1, len(tasks) // 20)
 
     def on_progress(k, n, rec):
         if not progress:
