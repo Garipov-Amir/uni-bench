@@ -11,7 +11,7 @@ from .grid_common import (DIRECTION_PARAM, TREE_PARAM, cell_routes_to_trajectori
 class STC(Planner):
     manifest = Manifest(
         name="stc",
-        version="1.0",
+        version="1.1",
         reference="Gabriely & Rimon (2001), Spanning-tree based coverage of continuous areas by a mobile robot",
         family="grid",
         adapter="grid",

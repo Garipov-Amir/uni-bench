@@ -2,12 +2,12 @@
 name: connectivity
 output: results/connectivity
 instances:
-  - generate: {kind: safelog, rows: 20, cols: 20, count: 2, seed: 0}
-    family: IF4
-    split: all
+  # the 21 published SafeLog maps (scripts/fetch_datasets.sh, then: uninbench import safelog datasets/safelog
+  # --out data/IF4); grid planners receive the original graphs through the identity adapter (native_graph)
+  - {path: data/IF4, split: all}
 team_sizes: [1, 4]
 start_configs: [dispersed, clustered]
-planners: [stc, mstc, darp_stc, darp_bf]
+planners: [stc, mstc, mstc_star, tmstc_star, mfc, mip, ls_mcpp, darp_stc, gm_vpc, darp_bf]
 seeds: 5
 repetitions: 3
 workers: 4

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import time
 from dataclasses import dataclass, field
 
@@ -43,9 +44,17 @@ class AdapterRecord:
 
 
 class Representation:
-    """Native planner input R_i.  Subclasses add family-specific structures."""
+    """Native planner input R_i.  Subclasses add family-specific structures.
+
+    Structures that planners compute lazily (transit graphs, shortest-path
+    trees, ...) are cached on the representation.  Every planner call receives
+    :meth:`fresh`, a copy holding only what the adapter itself produced, so
+    that no call profits from work done by an earlier repetition, seed or
+    planner (equal conditions for the planning-time measurement).
+    """
 
     family = "abstract"
+    lazy_caches: tuple = ()  # names of per-call caches besides ``_cache``
 
     def __init__(self, team, free: BaseGeometry, params: dict):
         self.team = team
@@ -77,6 +86,19 @@ class Representation:
     def layers(self) -> dict:
         """Intermediate structures for the simulator (JSON-serialisable)."""
         return {}
+
+    def seal(self) -> "Representation":
+        """Mark the current cache content as part of the adapter output."""
+        self.__dict__["_sealed_cache"] = dict(self.__dict__.get("_cache", {}))
+        return self
+
+    def fresh(self) -> "Representation":
+        """Copy for one planner call: adapter output only, no lazily computed caches."""
+        new = copy.copy(self)
+        new.__dict__["_cache"] = dict(self.__dict__.get("_sealed_cache", {}))
+        for name in self.lazy_caches:
+            new.__dict__[name] = {}
+        return new
 
     def __getstate__(self):
         d = dict(self.__dict__)
@@ -118,6 +140,7 @@ class Adapter:
                             params=self.resolved_params(inst), runtime=runtime,
                             info=getattr(rep, "info", {}))
         rec.fidelity = fidelity(inst, rep.reconstruction, eps_max)
+        rep.seal()
         return rep, rec
 
 

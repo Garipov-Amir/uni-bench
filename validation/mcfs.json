@@ -1,0 +1,46 @@
+{
+ "planner": "mcfs",
+ "version": "1.0",
+ "cases": [
+  {
+   "case": "mcfs_fermat_spirals",
+   "planner": "mcfs",
+   "source": "Tang & Ma (2024b): the tree cover of the isograph contains every isovertex, so the connected Fermat spirals traverse every isoline",
+   "results": [
+    {
+     "metric": "coverage_ratio",
+     "value": 0.966009104704097,
+     "expected": 0.93,
+     "kind": "ge",
+     "rel_tol": 0.0,
+     "abs_tol": 0.0,
+     "ok": true
+    },
+    {
+     "metric": "static_collision_time",
+     "value": 0.0,
+     "expected": 0.0,
+     "kind": "eq",
+     "rel_tol": 0.0,
+     "abs_tol": 1e-09,
+     "ok": true
+    },
+    {
+     "check": "isolines_covered",
+     "ok": true,
+     "message": null
+    }
+   ],
+   "errors": [],
+   "passed": true,
+   "time": 0.12493120797444135
+  }
+ ],
+ "internal_passed": true,
+ "published": {
+  "applicable": false
+ },
+ "summary": "1/1 cases passed; no published reference data",
+ "validated_at": "2026-09-29T16:49:16",
+ "passed": true
+}

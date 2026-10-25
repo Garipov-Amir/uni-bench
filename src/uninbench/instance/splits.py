@@ -11,39 +11,76 @@ from ..util import dump_json, load_json
 from .model import Instance
 
 
-def _stratum(meta: dict, key: str | None):
-    if not key:
-        return "all"
+# the factor each instance family varies (Table: instance families of the benchmark)
+DEFAULT_STRATIFY = {
+    "IF1": "holes",
+    "IF2": "holes",
+    "IF3": "furniture",  # empty/furnished variants of a room are paired and always share a split
+    "IF4": "graph_density",
+    "IF5": "width,obstacle_density,obstacle_shape,nonconvexity",
+}
+
+
+def _factor(meta: dict, key: str):
     fac = meta.get("factors", {})
-    v = fac.get(key, meta.get(key, "all"))
-    return str(v)
+    return fac.get(key, meta.get(key))
 
 
-def assign_splits(instances: list[Instance], tuning_fraction: float = 0.2, stratify: str | None = None,
+def _is_number(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def _hash(seed, key) -> str:
+    return hashlib.sha256(f"{seed}:{key}".encode()).hexdigest()
+
+
+def assign_splits(instances: list[Instance], tuning_fraction: float = 0.2, stratify: str | None = "auto",
                   seed: int = 0) -> dict[str, str]:
-    """Deterministically assign each instance to 'tuning' or 'test'.
+    """Deterministically assign each instance to 'tuning' or 'test', stratified by the varied factor.
 
-    Paired variants (instances sharing ``metadata["pair"]``, e.g. the empty and
-    furnished version of a room) are always assigned to the same split.
+    ``stratify`` is a factor name, several comma-separated names, ``"auto"``
+    (the factor each family varies, :data:`DEFAULT_STRATIFY`) or None.  A single
+    numeric factor is stratified by systematic sampling along its sorted values,
+    so that every part of its range is represented in both splits even when
+    every value occurs once (e.g. the 21 SafeLog densities); categorical or
+    combined factors are split within every stratum.  Paired variants (instances
+    sharing ``metadata["pair"]``) are always assigned to the same split.
     """
     groups: dict[str, list[Instance]] = defaultdict(list)
     for inst in instances:
         groups[str(inst.metadata.get("pair", inst.id))].append(inst)
-    strata = defaultdict(list)
+    by_family = defaultdict(list)
     for gkey, members in groups.items():
-        first = members[0]
-        strata[(first.family, _stratum(first.metadata, stratify))].append((gkey, members))
+        by_family[members[0].family].append((gkey, members))
     out = {}
-    for _, units in sorted(strata.items()):
-        units = sorted(units, key=lambda u: hashlib.sha256(f"{seed}:{u[0]}".encode()).hexdigest())
-        n_tune = int(math.floor(tuning_fraction * len(units) + 0.5))
-        for k, (_, members) in enumerate(units):
+    for fam, units in sorted(by_family.items()):
+        key = DEFAULT_STRATIFY.get(fam) if stratify == "auto" else stratify
+        names = [k.strip() for k in key.split(",")] if key else []
+        vals = [tuple(_factor(m[0].metadata, k) for k in names) for _, m in units]
+        units = [u for u, _ in sorted(zip(units, vals), key=lambda t: _hash(seed, t[0][0]))]
+        vals = [tuple(_factor(m[0].metadata, k) for k in names) for _, m in units]
+        if len(names) == 1 and all(_is_number(v[0]) for v in vals) and len(set(vals)) > 1:
+            order = sorted(range(len(units)), key=lambda i: (vals[i][0], _hash(seed, units[i][0])))
+            n_tune = int(math.floor(tuning_fraction * len(units) + 0.5))
+            offset = int(_hash(seed, fam)[:8], 16) / 16 ** 8
+            pick = {order[min(len(order) - 1, int(math.floor((k + offset) * len(order) / n_tune)))]
+                    for k in range(n_tune)} if n_tune else set()
+            chosen = {i for i in range(len(units)) if i in pick}
+        else:
+            strata = defaultdict(list)
+            for i, v in enumerate(vals):
+                strata[str(v)].append(i)
+            chosen = set()
+            for _, idx in sorted(strata.items()):
+                n_tune = int(math.floor(tuning_fraction * len(idx) + 0.5))
+                chosen.update(idx[:n_tune])
+        for i, (_, members) in enumerate(units):
             for inst in members:
-                out[inst.id] = "tuning" if k < n_tune else "test"
+                out[inst.id] = "tuning" if i in chosen else "test"
     return out
 
 
-def split_directory(directory: str | Path, tuning_fraction: float = 0.2, stratify: str | None = None,
+def split_directory(directory: str | Path, tuning_fraction: float = 0.2, stratify: str | None = "auto",
                     seed: int = 0) -> dict[str, str]:
     """Assign splits to every instance JSON in a directory and write index.json."""
     directory = Path(directory)

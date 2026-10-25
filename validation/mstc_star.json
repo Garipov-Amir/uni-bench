@@ -1,0 +1,50 @@
+{
+ "planner": "mstc_star",
+ "version": "1.0",
+ "cases": [
+  {
+   "case": "mstc_star_balanced",
+   "planner": "mstc_star",
+   "source": "Tang et al. (2021): Balanced-MSTC* cuts one STC tour into partitions of nearly equal weight; every sub-cell is covered",
+   "results": [
+    {
+     "metric": "coverage_ratio",
+     "value": 0.9895724713242962,
+     "expected": 0.98,
+     "kind": "ge",
+     "rel_tol": 0.0,
+     "abs_tol": 0.0,
+     "ok": true
+    },
+    {
+     "metric": "static_collision_time",
+     "value": 0.0,
+     "expected": 0.0,
+     "kind": "eq",
+     "rel_tol": 0.0,
+     "abs_tol": 1e-09,
+     "ok": true
+    },
+    {
+     "check": "balanced_partitions_1.1",
+     "ok": true,
+     "message": null
+    }
+   ],
+   "errors": [],
+   "passed": true,
+   "time": 0.022086083015892655
+  }
+ ],
+ "internal_passed": true,
+ "published": {
+  "applicable": true,
+  "available": false,
+  "passed": false,
+  "cases": [],
+  "reason": "published instances not found: run scripts/fetch_datasets.sh (clones github.com/reso1/MIP-MCPP to datasets/MIP-MCPP) or set UNINBENCH_MIP_MCPP"
+ },
+ "summary": "1/1 cases passed; published validation data not available",
+ "validated_at": "2026-09-29T16:49:16",
+ "passed": false
+}

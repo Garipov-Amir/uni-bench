@@ -20,13 +20,23 @@ FAIL = ("incomplete", "invalid", "timeout", "crash")
 
 
 def variant(rec: dict) -> str:
+    """Display name of a planner variant.  ``*`` marks results that are not those of an
+    original published algorithm (staged compositions, benchmark baselines, planners
+    composed with a framework stage), so they are never reported as originals."""
     name = rec.get("planner", "?")
     fac = (rec.get("factors") or {}).get("planning_resolution")
     if fac is not None and float(fac) != 1.0:
         name += f"@dp{float(fac):g}"
-    if rec.get("composition_of"):
+    for st in rec.get("framework_stages") or []:
+        name += "+pw" if st == "prioritized_waiting" else f"+{st}"
+    if rec.get("composition_of") or rec.get("provenance", "original") != "original":
         name += "*"
     return name
+
+
+def adapter_attributed(rec: dict) -> bool:
+    """A failure caused by the representation (flagged adapter), not by the planner (R3)."""
+    return rec.get("failure_attribution") == "adapter"
 
 
 def group_key(rec: dict):
@@ -38,9 +48,13 @@ def unit_key(rec: dict):
 
 
 def value(rec: dict, metric: str):
-    if metric in COMPUTE:
-        return rec.get(metric)
-    return (rec.get("metrics") or {}).get(metric)
+    v = rec.get(metric) if metric in COMPUTE else (rec.get("metrics") or {}).get(metric)
+    if isinstance(v, str):  # JSON encodes infinities as strings
+        try:
+            v = float(v)
+        except ValueError:
+            return None
+    return v
 
 
 def flatten(rec: dict) -> dict:
@@ -51,12 +65,15 @@ def flatten(rec: dict) -> dict:
         "base_instance": rec.get("base_instance"), "instance_hash": rec.get("instance_hash"),
         "split": rec.get("split"), "team_size": rec.get("team_size"), "planner": rec.get("planner"),
         "variant": variant(rec), "planner_version": rec.get("planner_version"), "mode": rec.get("planner_mode"),
-        "composition_of": "+".join(rec.get("composition_of") or []), "stochastic": rec.get("stochastic"),
+        "provenance": rec.get("provenance"), "composition_of": "+".join(rec.get("composition_of") or []),
+        "stochastic": rec.get("stochastic"),
         "config_label": rec.get("config_label"), "config_hash": rec.get("config_hash"), "seed": rec.get("seed"),
-        "outcome": rec.get("outcome"), "reason": rec.get("reason"), "delta_p": rec.get("delta_p"),
+        "outcome": rec.get("outcome"), "failure_attribution": rec.get("failure_attribution"),
+        "reason": rec.get("reason"), "source_resolution": rec.get("source_resolution"), "delta_p": rec.get("delta_p"),
         "delta_e": rec.get("delta_e"), "adapter": (rec.get("adapter") or {}).get("adapter"),
         "fidelity_rel_error": fid.get("rel_error"), "adapter_flagged": rec.get("adapter_flagged"),
         "sensitivity_stable": (rec.get("sensitivity") or {}).get("stable"),
+        "memory_isolated": (rec.get("memory") or {}).get("isolated"),
     }
     for k in COMPUTE:
         row[k] = rec.get(k)
@@ -81,12 +98,20 @@ def write_csv(rows: list[dict], path: Path):
 
 
 def per_instance(records, metric: str, fail_inf: bool = True):
-    """{(group, variant): {unit: median over seeds}} with failures as +inf (or dropped)."""
+    """{(group, variant): {unit: median over seeds}} with failures as +inf (or dropped).
+
+    Not-applicable runs and failures attributed to a flagged adapter are left out:
+    they say nothing about the planner, so the instance is not compared for it."""
     acc = defaultdict(lambda: defaultdict(list))
     for r in records:
-        if r.get("outcome") == "not_applicable":
+        if r.get("outcome") == "not_applicable" or adapter_attributed(r):
             continue
-        v = value(r, metric) if r.get("outcome") == "success" else None
+        if r.get("outcome") == "success":
+            v = value(r, metric)
+            if v is None:  # not measured (inactive metric, inline memory): no information
+                continue
+        else:
+            v = None
         if v is None or not np.isfinite(v):
             if not fail_inf:
                 continue
@@ -96,14 +121,22 @@ def per_instance(records, metric: str, fail_inf: bool = True):
 
 
 def success_table(records) -> list[dict]:
+    """Outcomes per planner.  ``success_rate`` excludes not-applicable runs and failures
+    attributed to a flagged adapter; ``raw_success_rate`` only excludes not-applicable runs."""
     acc = defaultdict(lambda: defaultdict(int))
     for r in records:
-        acc[(group_key(r), variant(r))][r.get("outcome", "?")] += 1
+        c = acc[(group_key(r), variant(r))]
+        c[r.get("outcome", "?")] += 1
+        if adapter_attributed(r):
+            c["adapter_failures"] += 1
     rows = []
     for ((fam, m, cfg), var), c in sorted(acc.items()):
-        n = sum(v for k, v in c.items() if k != "not_applicable")
+        n = sum(c.get(o, 0) for o in ("success",) + FAIL)
+        n_planner = n - c.get("adapter_failures", 0)
         rows.append({"family": fam, "team_size": m, "config": cfg, "planner": var, "runs": n,
-                     "success_rate": c.get("success", 0) / n if n else None,
+                     "success_rate": c.get("success", 0) / n_planner if n_planner else None,
+                     "raw_success_rate": c.get("success", 0) / n if n else None,
+                     "adapter_failures": c.get("adapter_failures", 0),
                      **{o: c.get(o, 0) for o in ("success",) + FAIL + ("not_applicable",)}})
     return rows
 
@@ -222,6 +255,27 @@ def pareto_table(records, quality: str = PRIMARY, cost: str = "planning_time") -
     return rows
 
 
+def stage_table(records) -> list[dict]:
+    """Separate evaluation of intermediate outputs of staged planners (R6): median and IQR of
+    every numeric stage metric (e.g. partition imbalance before any route is built)."""
+    acc = defaultdict(list)
+    for r in records:
+        if r.get("outcome") in ("not_applicable", None):
+            continue
+        for stage, ms in (r.get("stage_metrics") or {}).items():
+            for k, v in (ms or {}).items():
+                if isinstance(v, bool):
+                    v = float(v)
+                if isinstance(v, (int, float)) and np.isfinite(v):
+                    acc[(r.get("family"), int(r.get("team_size", 0)), variant(r), stage, k)].append(float(v))
+    rows = []
+    for (fam, m, var, stage, k), vals in sorted(acc.items()):
+        d = describe(vals)
+        rows.append({"family": fam, "team_size": m, "planner": var, "stage": stage, "metric": k, "n": d["n"],
+                     "median": d["median"], "q1": d["q1"], "q3": d["q3"]})
+    return rows
+
+
 def fidelity_table(records) -> list[dict]:
     acc = defaultdict(list)
     for r in records:
@@ -237,6 +291,9 @@ def fidelity_table(records) -> list[dict]:
                      "median_rel_error": float(np.median(rel)) if rel else None,
                      "max_rel_error": float(np.max(rel)) if rel else None,
                      "flagged_runs": int(sum(bool(x.get("adapter_flagged")) for x in rs)), "runs": len(rs),
+                     "adapter_failures": int(sum(adapter_attributed(x) for x in rs)),
+                     "source_resolution": sorted({x.get("source_resolution") for x in rs
+                                                  if x.get("source_resolution") is not None}),
                      "delta_p": sorted({x.get("delta_p") for x in rs if x.get("delta_p") is not None}),
                      "delta_e": sorted({x.get("delta_e") for x in rs if x.get("delta_e") is not None})})
     return rows

@@ -1,0 +1,46 @@
+{
+ "planner": "mstc",
+ "version": "1.1",
+ "cases": [
+  {
+   "case": "mstc_nonbacktracking",
+   "planner": "mstc",
+   "source": "Hazon & Kaminka (2005): non-backtracking MSTC splits one STC tour into disjoint segments (no redundancy)",
+   "results": [
+    {
+     "metric": "path_length",
+     "value": 61.0,
+     "expected": 61.0,
+     "kind": "eq",
+     "rel_tol": 0.0,
+     "abs_tol": 1e-06,
+     "ok": true
+    },
+    {
+     "metric": "coverage_ratio",
+     "value": 0.9843260188087775,
+     "expected": 0.97,
+     "kind": "ge",
+     "rel_tol": 0.0,
+     "abs_tol": 0.0,
+     "ok": true
+    },
+    {
+     "check": "no_redundancy_across_robots",
+     "ok": true,
+     "message": null
+    }
+   ],
+   "errors": [],
+   "passed": true,
+   "time": 0.009448542026802897
+  }
+ ],
+ "internal_passed": true,
+ "published": {
+  "applicable": false
+ },
+ "summary": "1/1 cases passed; no published reference data",
+ "validated_at": "2026-09-29T16:49:16",
+ "passed": true
+}

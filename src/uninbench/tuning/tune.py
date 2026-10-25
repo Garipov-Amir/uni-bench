@@ -1,11 +1,13 @@
 """Equal, systematic tuning of every planner on the tuning split (R8).
 
 For each (planner, instance family) the hyperparameters are tuned by Bayesian
-optimisation with the same budget of planner evaluations.  The objective is the
-mean normalised makespan over the tuning instances, team sizes and start
-configurations (and a fixed set of seeds for stochastic planners); incomplete,
-invalid, timed-out and crashed runs receive a fixed penalty.  The best
-configuration theta* is frozen before the test split is used.
+optimisation with the same budget: ``budget`` configuration evaluations, each
+over all tuning instances, team sizes and start configurations (and a fixed set
+of ``tuning_seeds`` seeds for stochastic planners, whose results are averaged).
+The objective is the mean normalised makespan; incomplete, invalid, timed-out
+and crashed runs receive a fixed penalty.  Only planners that passed validation
+are tuned (R9 before R8).  The best configuration theta* is frozen before the
+test split is used; the record states the number of planner calls spent.
 """
 
 from __future__ import annotations
@@ -19,10 +21,11 @@ from pathlib import Path
 import numpy as np
 
 from ..planners import admission, get_planner
-from ..profiles import profile_adapter_params
+from ..planners.execution import framework_stages
 from ..util import content_hash, dump_json, seed_list, to_jsonable
 from ..runner.config import ExperimentConfig, load_config
-from ..runner.experiment import derive_instance, resolve_instances, tuned_config_path
+from ..runner.experiment import (adapter_for, check_resolutions, derive_instance, resolve_instances,
+                                 tuned_config_path, validation_status)
 from ..runner.pool import WorkerPool, run_inline
 from ..runner.worker import RunTask
 from .bo import Space, bayes_opt
@@ -42,21 +45,24 @@ def _tasks(cfg, planner_name, params, instances, seeds, out_dir):
                     inst = derive_instance(base, int(m), sc, cfg)
                 except ValueError:
                     continue
-                status, _ = admission(man, inst)
+                dstage = cfg.raw.get("deconfliction_stage")
+                status, _ = admission(man, inst, dstage)
                 if status != "admitted":
                     continue
-                ap = {**man.adapter_params, **profile_adapter_params(inst, man.adapter),
-                      **cfg.adapters.get(man.adapter, {})}
+                adapter, ap = adapter_for(man, inst, cfg)
+                check_resolutions(inst, adapter, ap)
                 for seed in seeds:
-                    rid = content_hash({"tune": True, "i": inst.hash, "p": man.name, "c": params, "s": seed, "a": ap})
+                    rid = content_hash({"tune": True, "i": inst.hash, "p": man.name, "c": params, "s": seed, "a": ap,
+                                        "st": framework_stages(man, inst, dstage)})
                     tasks.append(RunTask(run_id=rid, experiment=f"tune:{cfg.name}", instance=inst.to_dict(),
                                          planner=planner_name, planner_label=planner_name, params=params,
-                                         config_label="tuning", seed=int(seed), repetitions=1, adapter=man.adapter,
+                                         config_label="tuning", seed=int(seed), repetitions=1, adapter=adapter,
                                          adapter_params=ap, eps_max=float(cfg.eps_max), time_limit=time_limit,
                                          memory_limit_mb=cfg.task.get("memory_limit_mb"),
                                          profiles=list(inst.task.profiles), factors={"start_config": sc},
                                          output_dir=str(out_dir), store={"trajectories": False, "coverage": False,
-                                                                         "events": False}))
+                                                                         "events": False},
+                                         deconfliction_stage=dstage))
     return tasks
 
 
@@ -78,7 +84,8 @@ def tune_planner(cfg: ExperimentConfig, planner_name: str, family: str, instance
     out_dir = Path(out_dir or cfg.tuning_dir or (cfg.output_dir / "tuning"))
     out_dir.mkdir(parents=True, exist_ok=True)
     log_path = out_dir / f"{planner_name}__{family}.runs.jsonl"
-    pool = None if inline else WorkerPool(workers, cfg.task.get("memory_limit_mb"), float(cfg.grace))
+    pool = None if inline else WorkerPool(workers, cfg.task.get("memory_limit_mb"), float(cfg.grace),
+                                          cfg.raw.get("max_tasks_per_worker", 1))
     history = []
 
     def objective(theta):
@@ -120,6 +127,7 @@ def tune_planner(cfg: ExperimentConfig, planner_name: str, family: str, instance
         "penalty": penalty,
         "seed": seed,
         "tuning_seeds": seeds,
+        "planner_calls": int(sum(h["runs"] for h in history)),
         "instances": [i.id for i in instances],
         "split": "tuning",
         "theta0": man.defaults(),
@@ -146,6 +154,11 @@ def tune_experiment(config, budget: int = 20, planners=None, workers: int | None
     out = {}
     for spec in cfg.planner_specs:
         if planners and spec.name not in planners:
+            continue
+        ok, why = validation_status(cfg, spec.name)
+        if not ok:
+            if verbose:
+                print(f"skipping {spec.name}: failed validation ({why})", flush=True)
             continue
         for fam, insts in sorted(by_family.items()):
             if verbose:

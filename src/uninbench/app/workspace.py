@@ -37,7 +37,10 @@ instances:
     split: all
 team_sizes: [1, 2, 4]
 start_configs: [dispersed]
-planners: [stc, mstc, darp_stc, darp_bf, swath_bf, bcd, kmeans_tsp]
+planners: [stc, mstc, mstc_star, tmstc_star, mfc, darp_stc, gm_vpc, ls_mcpp, swath_bf, mcfs, crc, scopp, kmeans_tsp]
+# MFC, MSTC* and LS-MCPP are validated against published results once scripts/fetch_datasets.sh has
+# downloaded the published instances; without them this exploratory experiment still admits them:
+require_published_validation: false
 seeds: 3
 repetitions: 3
 workers: {workers}

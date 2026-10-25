@@ -282,7 +282,7 @@ async function planners(arg) {
     h('tbody', {}, list.flatMap(p => {
       const v = p.validation;
       const row = h('tr', { class: 'click', onclick: () => { open.has(p.name) ? open.delete(p.name) : open.add(p.name); draw(); } },
-        h('td', {}, h('b', {}, p.name), p.composition_of ? h('span', { class: 'badge b-warn', style: 'margin-left:6px' }, 'composition') : null),
+        h('td', {}, h('b', {}, p.name), p.provenance && p.provenance !== 'original' ? h('span', { class: 'badge b-warn', style: 'margin-left:6px' }, p.provenance) : null),
         h('td', {}, p.family), h('td', {}, p.adapter), h('td', {}, p.mode), h('td', {}, p.stochastic ? 'stochastic' : 'deterministic'),
         h('td', {}, p.constraints.join(', ') || '–'), h('td', {}, p.hyperparameters.length),
         h('td', {}, v ? h('span', { class: `badge ${v.passed ? 'b-ok' : 'b-bad'}` }, v.summary) : h('span', { class: 'badge b-mute' }, 'not validated')));
@@ -298,7 +298,7 @@ async function planners(arg) {
     })))));
   draw();
   put(main, h('div', { class: 'row spread' }, h('div', {}, h('h1', {}, 'Planners'),
-    h('p', { class: 'sub' }, 'Registered planners and their manifests. Click a row for hyperparameters; validation runs the worked examples of each publication.')),
+    h('p', { class: 'sub' }, 'Registered planners and their manifests. Click a row for hyperparameters; validation runs the worked examples of each publication and, where available, compares with published results.')),
   h('button', { class: 'primary', onclick: () => guard(() => startJob('/api/validate', {})) }, 'Validate all')), wrap);
 }
 

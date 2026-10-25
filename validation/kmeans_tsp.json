@@ -1,0 +1,41 @@
+{
+ "planner": "kmeans_tsp",
+ "version": "1.1",
+ "cases": [
+  {
+   "case": "kmeans_tsp_balance",
+   "planner": "kmeans_tsp",
+   "source": "Target baseline: balanced clusters (imbalance <= 1.25) and complete coverage of the targets",
+   "results": [
+    {
+     "metric": "coverage_ratio",
+     "value": 0.994645340751043,
+     "expected": 0.98,
+     "kind": "ge",
+     "rel_tol": 0.0,
+     "abs_tol": 0.0,
+     "ok": true
+    },
+    {
+     "metric": "workload_imbalance",
+     "value": 1.045337536058621,
+     "expected": 1.25,
+     "kind": "le",
+     "rel_tol": 0.0,
+     "abs_tol": 0.0,
+     "ok": true
+    }
+   ],
+   "errors": [],
+   "passed": true,
+   "time": 0.06693216698477045
+  }
+ ],
+ "internal_passed": true,
+ "published": {
+  "applicable": false
+ },
+ "summary": "1/1 cases passed; no published reference data",
+ "validated_at": "2026-09-29T16:49:16",
+ "passed": true
+}

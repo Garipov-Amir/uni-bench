@@ -2,9 +2,23 @@
 
 Messages sent to the parent through ``send``:
 
+* ``("partial", record)``      -- the run record so far (after the adapter), so that
+                                  the parent can complete it if the run is killed,
 * ``("planning", time_limit)`` -- a planner call starts (the parent arms the timeout),
 * ``("planned", seconds)``     -- the planner call returned (timeout disarmed),
 * ``("result", record)``       -- the final run record.
+
+Measurement rules (Section "Resource limits" of the design):
+
+* every planner call -- each repetition of a deterministic planner and each
+  seed of a stochastic one -- receives a fresh copy of the adapter output, so
+  lazily built structures are never shared between calls, seeds or planners;
+* planning time is the wall-clock time of the planner call (plus any
+  framework stage composed with it), excluding adapter and evaluation time;
+* peak memory is the peak resident set size of the worker process at the end
+  of planning.  It is attributable to the run only when the process executed
+  no other run before (``memory.isolated``); otherwise ``peak_rss_mb`` is not
+  reported.
 """
 
 from __future__ import annotations
@@ -24,10 +38,13 @@ from ..adapters import make_adapter
 from ..evaluator import evaluate
 from ..instance.model import Instance
 from ..planners import PlanContext, get_planner
+from ..planners.execution import finalize_output, framework_stages, run_planner
 from ..util import content_hash, dump_json, pack_array
 from .environment import describe_environment
+from .memory import maxrss_mb
 
 OUTCOMES = ("success", "incomplete", "invalid", "timeout", "crash", "not_applicable")
+FAILURES = ("incomplete", "invalid", "timeout", "crash")
 
 
 @dataclass
@@ -50,19 +67,16 @@ class RunTask:
     factors: dict
     output_dir: str
     store: dict = field(default_factory=dict)
-
-
-def _rss_mb() -> float:
-    r = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    return r / (1024 * 1024) if sys.platform == "darwin" else r / 1024
+    deconfliction_stage: str | None = None
 
 
 _ADAPTER_CACHE: dict = {}
 _INSTANCE_CACHE: dict = {}
+_PROCESS = {"dedicated": False, "tasks": 0}
 
 
 def set_memory_limit(mb: int | None):
-    if not mb or sys.platform == "darwin":  # RLIMIT_AS is not enforced on macOS
+    if not mb or sys.platform == "darwin":  # RLIMIT_AS is not enforced on macOS (the pool polls instead)
         return
     try:
         lim = int(mb) * 1024 * 1024
@@ -81,6 +95,7 @@ def _instance(d: dict) -> Instance:
 
 
 def _adapter(inst: Instance, name: str, params: dict, eps_max: float):
+    """Adapter output for an instance; planner calls always use ``rep.fresh()``."""
     key = (inst.hash, name, content_hash(params), eps_max)
     if key not in _ADAPTER_CACHE:
         if len(_ADAPTER_CACHE) > 8:
@@ -89,9 +104,23 @@ def _adapter(inst: Instance, name: str, params: dict, eps_max: float):
     return _ADAPTER_CACHE[key]
 
 
+def failure_attribution(rec: dict) -> str | None:
+    """Who a failed run is attributed to: the adapter when its representation was
+    flagged by the fidelity check (or the adapter itself failed), else the planner."""
+    if rec.get("outcome") not in FAILURES:
+        return None
+    return "adapter" if rec.get("adapter_flagged") or rec.get("adapter_error") else "planner"
+
+
 def base_record(task: RunTask, inst: Instance, planner_cls) -> dict:
     man = planner_cls.manifest
     env = describe_environment()
+    stages = framework_stages(man, inst, task.deconfliction_stage)
+    composition = man.composition_of
+    provenance = man.provenance
+    if stages:
+        composition = list(man.composition_of or [man.name]) + stages
+        provenance = "composition"
     return {
         "run_id": task.run_id,
         "experiment": task.experiment,
@@ -106,7 +135,9 @@ def base_record(task: RunTask, inst: Instance, planner_cls) -> dict:
         "planner_name": man.name,
         "planner_version": man.version,
         "planner_mode": man.mode,
-        "composition_of": man.composition_of,
+        "provenance": provenance,
+        "composition_of": composition,
+        "framework_stages": stages,
         "stochastic": man.stochastic,
         "config_label": task.config_label,
         "config": task.params,
@@ -114,38 +145,52 @@ def base_record(task: RunTask, inst: Instance, planner_cls) -> dict:
         "seed": task.seed,
         "profiles": task.profiles,
         "limits": {"time_s": task.time_limit, "memory_mb": task.memory_limit_mb},
+        "source_resolution": inst.environment.source_resolution,
         "hardware": env["hardware"],
         "software": env["software"],
         "started": time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
 
 
+def _finish(rec: dict, send) -> dict:
+    rec["failure_attribution"] = failure_attribution(rec)
+    send(("result", rec))
+    return rec
+
+
 def execute(task: RunTask, send) -> dict:
+    _PROCESS["tasks"] += 1
+    isolated = _PROCESS["dedicated"] and _PROCESS["tasks"] == 1
     inst = _instance(task.instance)
     planner_cls = get_planner(task.planner)
+    man = planner_cls.manifest
     rec = base_record(task, inst, planner_cls)
     try:
         rep, arec = _adapter(inst, task.adapter, task.adapter_params, task.eps_max)
     except Exception as e:  # adapter failure is attributed to the adapter, not the planner
-        rec.update(outcome="crash", reason=f"adapter error: {e!r}", traceback=traceback.format_exc())
-        send(("result", rec))
-        return rec
+        rec.update(outcome="crash", adapter_error=True, reason=f"adapter error: {e!r}",
+                   traceback=traceback.format_exc())
+        return _finish(rec, send)
     rec["adapter"] = arec.to_dict()
     rec["adapter_flagged"] = arec.flagged
     rec["delta_p"] = arec.params.get("resolution")
     rec["adapter_time"] = arec.runtime
+    send(("partial", dict(rec)))
+    stages = rec["framework_stages"]
     times, digests = [], []
     result = None
-    rss0 = _rss_mb()
+    gc.collect()
+    rss_adapter = maxrss_mb()
     try:
         planner = planner_cls(task.params)
         for k in range(max(1, task.repetitions)):
             gc.collect()
+            work = rep.fresh()
             ctx = PlanContext(seed=task.seed, time_limit=task.time_limit, profiles=set(task.profiles),
                               return_to_depot=bool(inst.task.return_to_depot))
             send(("planning", task.time_limit))
             t0 = time.perf_counter()
-            res = planner.plan(rep, ctx)
+            res = run_planner(planner, work, ctx, stages)
             dt = time.perf_counter() - t0
             send(("planned", dt))
             times.append(dt)
@@ -156,21 +201,21 @@ def execute(task: RunTask, send) -> dict:
                 break
     except MemoryError:
         rec.update(outcome="crash", reason="memory limit exceeded", traceback=traceback.format_exc())
-        send(("result", rec))
-        return rec
+        return _finish(rec, send)
     except Exception as e:
         rec.update(outcome="crash", reason=repr(e), traceback=traceback.format_exc())
-        send(("result", rec))
-        return rec
+        return _finish(rec, send)
+    rss_end = maxrss_mb()
     rec["planning_time"] = float(np.median(times))
     rec["planning_times"] = times
-    rec["peak_rss_mb"] = _rss_mb()
-    rec["rss_growth_mb"] = max(0.0, _rss_mb() - rss0)
+    rec["memory"] = {"isolated": isolated, "process_peak_rss_mb": rss_end, "after_adapter_rss_mb": rss_adapter,
+                     "planning_growth_mb": max(0.0, rss_end - rss_adapter)}
+    rec["peak_rss_mb"] = rss_end if isolated else None
     rec["deterministic_check"] = len(set(digests)) <= 1
     if max(times) > task.time_limit:
         rec.update(outcome="timeout", reason=f"planning took {max(times):.3g} s > {task.time_limit} s")
-        send(("result", rec))
-        return rec
+        return _finish(rec, send)
+    result = finalize_output(result, man)
     rec["stage_metrics"] = result.stage_metrics
     rec["stage_outputs"] = result.stage_outputs
     rec["planner_info"] = result.info
@@ -179,8 +224,7 @@ def execute(task: RunTask, send) -> dict:
                       profiles=task.profiles)
     except Exception as e:
         rec.update(outcome="crash", reason=f"evaluation error: {e!r}", traceback=traceback.format_exc())
-        send(("result", rec))
-        return rec
+        return _finish(rec, send)
     rec["outcome"] = ev.status
     rec["reason"] = "; ".join(ev.validity.reasons) or None
     rec["warnings"] = ev.validity.warnings
@@ -191,8 +235,7 @@ def execute(task: RunTask, send) -> dict:
     rec["eval_time"] = ev.eval_time
     rec["artifacts"] = _store(task, inst, result, ev, rep)
     rec["finished"] = time.strftime("%Y-%m-%dT%H:%M:%S")
-    send(("result", rec))
-    return rec
+    return _finish(rec, send)
 
 
 def _store(task: RunTask, inst: Instance, result, ev, rep) -> dict:
@@ -229,7 +272,8 @@ def _store(task: RunTask, inst: Instance, result, ev, rep) -> dict:
 
 
 def worker_main(conn, memory_limit_mb):
-    """Long-lived worker process loop."""
+    """Worker process loop (by default the pool retires a worker after one task)."""
+    _PROCESS["dedicated"] = True
     set_memory_limit(memory_limit_mb)
     os.environ.setdefault("OMP_NUM_THREADS", "1")
 
@@ -251,12 +295,12 @@ def worker_main(conn, memory_limit_mb):
             except Exception:
                 rec = {"run_id": task.run_id, "planner": task.planner_label, "seed": task.seed}
             rec.update(outcome="crash", reason=repr(e), traceback=traceback.format_exc())
+            rec["failure_attribution"] = failure_attribution(rec)
             conn.send(("result", rec))
 
 
 def not_applicable_record(task: RunTask, reason: str) -> dict:
     inst = _instance(task.instance)
     rec = base_record(task, inst, get_planner(task.planner))
-    rec.update(outcome="not_applicable", reason=reason)
+    rec.update(outcome="not_applicable", reason=reason, failure_attribution=None)
     return rec
-

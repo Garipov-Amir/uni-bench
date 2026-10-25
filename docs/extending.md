@@ -42,12 +42,13 @@ class GreedyGrid(Planner):
 | `name`, `version`, `reference`, `description` | identity; the version is part of every run id, so bump it when behaviour changes |
 | `family`, `adapter`, `adapter_params` | which representation the planner needs, and the adapter parameters it requires (e.g. `coarse: True` for STC) |
 | `task_class` | default `one_shot_direct_coverage`; planners of other task classes are excluded from comparisons |
-| `constraints` | supported constraints: `multi_robot`, `heterogeneous`, `capacity`, `turning_radius`, `deconfliction`, `return_to_depot`, `terrain` |
+| `constraints` | supported constraints: `multi_robot`, `heterogeneous`, `capacity`, `turning_radius`, `deconfliction`, `return_to_depot`, `terrain`; declare `deconfliction` only if the planner itself resolves inter-robot conflicts (otherwise it can join the deconfliction profile only as a composition with the framework's `prioritized_waiting` stage) |
 | `max_robots` | e.g. `1` for single-robot planners (larger teams become *not applicable*) |
 | `stochastic` | `True`: one run per seed, and your code must use `ctx.rng` (a seeded `numpy.random.Generator`) |
 | `hyperparameters` | `HyperParam(name, kind, default, low=…, high=…, choices=…, log=…, doc=…)`, with kind `float`, `int`, `categorical` or `bool`; this is the space the tuner searches |
-| `mode`, `stages`, `composition_of` | staged planners (below) |
-| `distinguishes_service_transit` | `False` if you label everything as service |
+| `mode`, `stages` | staged planners (below) |
+| `provenance`, `composition_of` | `original` (reimplementation of the cited publication, the default), `composition` (stages combined by you) or `baseline` (a reference method written for the benchmark); non-originals are marked `*` in every report |
+| `distinguishes_service_transit` | `False` if your planner cannot tell service from transit; the framework then labels every motion segment as service |
 | `tool_active_in_turns` | whether the tool stays on during in-place turns |
 | `parallelism`, `external_dependencies`, `core_modules` | reported as implementation-complexity indicators; `core_modules` are paths used for the source-line count |
 
@@ -139,8 +140,13 @@ class DARPColumns(StagedPlanner):
         return PlanResult(cell_routes_to_trajectories(rep, data["routes"]["routes"], self.manifest, ctx))
 ```
 
-Set `composition_of` whenever you combine stages of different methods. Such planners are marked `*` and are never
-reported as the original algorithm.
+Set `composition_of` (which makes the provenance `composition`) whenever you combine stages of different methods, or
+`provenance="baseline"` for a method you wrote for the benchmark. Such planners are marked `*` and are never
+reported as the original algorithm. Hyperparameters of an original planner should only span choices its authors
+treat as algorithmic choices; a variant beyond them is a separate planner.
+
+Every planner call receives a fresh copy of the representation (`rep.fresh()`), so caches you keep on `rep` (in
+`rep.__dict__["_cache"]`) are per call and cannot leak into another repetition, seed or planner.
 
 ## Validation cases for your planner
 

@@ -39,7 +39,7 @@ def complexity(planner: str) -> dict:
     man = get_planner(planner).manifest
     root = Path(uninbench.__file__).resolve().parent.parent
     files = {m: sloc(root / m) for m in man.core_modules}
-    return {"planner": man.name, "sloc_core": sum(files.values()), "files": files,
+    return {"planner": man.name, "provenance": man.provenance, "sloc_core": sum(files.values()), "files": files,
             "hyperparameters": len(man.hyperparameters), "stages": len(man.stages) if man.mode == "staged" else 1,
             "mode": man.mode, "external_dependencies": man.external_dependencies, "parallelism": man.parallelism,
             "composition_of": man.composition_of}

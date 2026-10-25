@@ -3,7 +3,17 @@
 Cells are classified by a declared rule (``center``, ``full`` containment or
 area ``fraction``), a 4- or 8-connected graph is built whose edges are
 checked against the configuration space, and -- for STC-type planners --
-coarse cells of 2x2 sub-cells are formed.
+coarse cells of 2x2 sub-cells are formed:
+
+* ``coarse=True``: only *complete* coarse cells (all four sub-cells free and
+  mutually connected) are used; sub-cells of partly free coarse cells are
+  given up (representation loss, as in STC, MSTC, DARP, MFC, MIP);
+* ``coarse="partial"``: every traversable sub-cell is used and coarse cells
+  with at least one sub-cell are kept (``coarse["any"]``), for planners that
+  cover incomplete terrain vertices (Extended-STC of LS-MCPP).
+
+Coarse vertex weights (``coarse["weights"]``) are the mean terrain cost of
+the four sub-cell centres (1 without a terrain layer).
 """
 
 from __future__ import annotations
@@ -24,6 +34,7 @@ from .base import Adapter, Representation
 
 class GridRepresentation(Representation):
     family = "grid"
+    lazy_caches = ("_sp_cache",)
 
     def __init__(self, team, free, params, grid: RasterGrid, cells: np.ndarray, edges: np.ndarray,
                  weights: np.ndarray, cspace, coarse: dict | None = None):
@@ -121,7 +132,7 @@ class GridRepresentation(Representation):
 class GridAdapter(Adapter):
     name = "grid"
     family = "grid"
-    version = "1.1"
+    version = "1.2"
     defaults = {
         "resolution": "auto",  # 'auto' -> resolution_factor * working width, or metres
         "resolution_factor": 1.0,
@@ -129,7 +140,7 @@ class GridAdapter(Adapter):
         "fraction": 0.5,
         "connectivity": 4,
         "inflation": 0.0,
-        "coarse": False,  # STC: coarse cells of 2x2 sub-cells
+        "coarse": False,  # STC: coarse cells of 2x2 sub-cells (True | 'partial')
         "weighted": False,
         "check_edges": True,
         "require_center_in_cspace": True,
@@ -212,11 +223,18 @@ class GridAdapter(Adapter):
         used = cells
         if p["coarse"]:
             coarse = _coarse(grid, cells, edges)
-            used = np.zeros_like(cells)
-            CI, CJ = np.nonzero(coarse["cells"])
-            for di in (0, 1):
-                for dj in (0, 1):
-                    used[2 * CI + di, 2 * CJ + dj] = True
+            tc = inst.environment.terrain.cost_at(cx, cy).reshape(grid.shape) if inst.environment.terrain \
+                is not None else np.ones(grid.shape)
+            ny2, nx2 = coarse["cells"].shape
+            coarse["weights"] = tc[:2 * ny2, :2 * nx2].reshape(ny2, 2, nx2, 2).mean(axis=(1, 3))
+            if p["coarse"] == "partial":
+                coarse["any"] = cells[:2 * ny2, :2 * nx2].reshape(ny2, 2, nx2, 2).any(axis=(1, 3))
+            else:
+                used = np.zeros_like(cells)
+                CI, CJ = np.nonzero(coarse["cells"])
+                for di in (0, 1):
+                    for dj in (0, 1):
+                        used[2 * CI + di, 2 * CJ + dj] = True
         rep = GridRepresentation(inst.team, free, self.resolved_params(inst), grid, cells, edges, weights,
                                  cspace, coarse)
         rep.reconstruction = RasterRegion(grid, used)
@@ -226,6 +244,8 @@ class GridAdapter(Adapter):
                     "delta_p": res}
         if coarse is not None:
             rep.info["coarse_cells"] = int(coarse["cells"].sum())
+            if "any" in coarse:
+                rep.info["coarse_cells_any"] = int(coarse["any"].sum())
         return rep
 
 

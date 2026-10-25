@@ -49,25 +49,43 @@ def holm(pvals) -> list[float]:
     return adj.tolist()
 
 
-def wilcoxon_paired(a, b) -> dict:
-    """Wilcoxon signed-rank test on paired values (pairs with a non-finite value are dropped)."""
+def paired_differences(a, b) -> np.ndarray:
+    """Per-instance differences a - b with failures (+inf) kept.
+
+    A failure of one planner is a difference of -inf/+inf in favour of the
+    other; a failure of both is a tie.  Instances where a value is missing
+    (NaN, e.g. not applicable) are dropped.
+    """
     a = np.asarray(a, dtype=float)
     b = np.asarray(b, dtype=float)
-    ok = np.isfinite(a) & np.isfinite(b)
+    ok = ~(np.isnan(a) | np.isnan(b))
     a, b = a[ok], b[ok]
-    d = a - b
-    out = {"n": int(len(d)), "median_diff": float(np.median(d)) if len(d) else None}
+    both = np.isinf(a) & np.isinf(b)
+    with np.errstate(invalid="ignore"):
+        d = np.where(both, 0.0, a - b)
+    return d
+
+
+def wilcoxon_paired(a, b) -> dict:
+    """Wilcoxon signed-rank test on paired values; failures (+inf) count as the
+    largest possible differences, so a planner cannot look better by failing."""
+    d = paired_differences(a, b)
+    out = {"n": int(len(d)), "failures_a": int(np.sum(np.isposinf(d))), "failures_b": int(np.sum(np.isneginf(d))),
+           "median_diff": float(np.median(d)) if len(d) else None}
     nz = d[d != 0]
     if len(nz) == 0:
         out.update(statistic=None, p=1.0, rank_biserial=0.0)
         return out
-    r = stats.rankdata(np.abs(nz))
-    wp, wm = float(r[nz > 0].sum()), float(r[nz < 0].sum())
+    fin = np.abs(nz[np.isfinite(nz)])
+    big = (fin.max() if len(fin) else 1.0) * 2 + 1.0
+    z = np.where(np.isinf(nz), np.sign(nz) * big, nz)  # ranks only depend on the order of |d|
+    r = stats.rankdata(np.abs(z))
+    wp, wm = float(r[z > 0].sum()), float(r[z < 0].sum())
     out["rank_biserial"] = (wp - wm) / (wp + wm)
-    if len(nz) < 2:
+    if len(z) < 2:
         out.update(statistic=None, p=1.0)
         return out
-    res = stats.wilcoxon(a, b, zero_method="wilcox")
+    res = stats.wilcoxon(z, zero_method="wilcox")
     out.update(statistic=float(res.statistic), p=float(res.pvalue))
     return out
 

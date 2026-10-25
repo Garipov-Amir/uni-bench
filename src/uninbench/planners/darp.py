@@ -33,8 +33,6 @@ DARP_PARAMS = [
     HyperParam("cc_variation", "float", 0.01, low=1e-3, high=0.2, log=True, doc="connectivity bias range"),
     HyperParam("random_level", "float", 1e-4, low=1e-6, high=1e-2, log=True, doc="random perturbation"),
     HyperParam("dcells", "int", 2, low=0, high=20, doc="largest accepted cell imbalance threshold"),
-    HyperParam("metric", "categorical", "euclidean", choices=["euclidean", "geodesic"],
-               doc="distance from the robots (the original uses Euclidean distance)"),
 ]
 
 
@@ -229,7 +227,7 @@ class DARPDistribution(Stage):
             lab, inf = darp_partition(
                 adj[idx][:, idx], [local[seeds[k]] for k in robots], ctx.rng, centers=centers[idx],
                 max_iter=int(params["max_iter"]), cc_variation=float(params["cc_variation"]),
-                random_level=float(params["random_level"]), dcells=int(params["dcells"]), metric=params["metric"],
+                random_level=float(params["random_level"]), dcells=int(params["dcells"]), metric="euclidean",
                 deadline=lambda: ctx.out_of_time(0.8))
             labels[idx] = np.asarray(robots)[lab]
             info["converged"] &= inf["converged"]
@@ -356,19 +354,19 @@ class _DARPBase(StagedPlanner):
         if data["routes"].get("trees"):
             layers["spanning_tree"] = tree_layer(rep, data["routes"]["trees"])
         return PlanResult(ts, native={rid: [c for c, _ in rt] for rid, rt in routes.items()}, layers=layers,
-                          info={"darp": part["info"]})
+                          info={"partition": part["info"]})
 
 
 class DARPSTC(_DARPBase):
     manifest = Manifest(
         name="darp_stc",
-        version="1.0",
+        version="1.1",
         reference="Kapoutsis, Chatzichristofis & Kosmatopoulos (2017), DARP: Divide areas algorithm for optimal "
                   "multi-robot coverage path planning",
         family="grid",
         adapter="grid",
         adapter_params={"coarse": True, "connectivity": 4},
-        constraints={"multi_robot", "deconfliction"},
+        constraints={"multi_robot"},
         stochastic=True,
         mode="staged",
         stages=["coarse_regions", "darp", "stc_per_region"],
@@ -382,12 +380,12 @@ class DARPSTC(_DARPBase):
 class DARPBF(_DARPBase):
     manifest = Manifest(
         name="darp_bf",
-        version="1.0",
+        version="1.1",
         reference="Composition: DARP partition (Kapoutsis et al., 2017) + back-and-forth sweeps",
         family="grid",
         adapter="grid",
         adapter_params={"coarse": True, "connectivity": 4},
-        constraints={"multi_robot", "deconfliction"},
+        constraints={"multi_robot"},
         stochastic=True,
         mode="staged",
         stages=["coarse_regions", "darp", "bf_per_region"],

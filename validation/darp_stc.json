@@ -1,0 +1,70 @@
+{
+ "planner": "darp_stc",
+ "version": "1.1",
+ "cases": [
+  {
+   "case": "darp_obstacle_free",
+   "planner": "darp_stc",
+   "source": "Kapoutsis et al. (2017): on obstacle-free grids DARP converges to connected regions whose sizes differ by at most one cell",
+   "results": [
+    {
+     "metric": "coverage_ratio",
+     "value": 0.9888694347173587,
+     "expected": 0.98,
+     "kind": "ge",
+     "rel_tol": 0.0,
+     "abs_tol": 0.0,
+     "ok": true
+    },
+    {
+     "metric": "workload_imbalance",
+     "value": 1.010097248255455,
+     "expected": 1.05,
+     "kind": "le",
+     "rel_tol": 0.0,
+     "abs_tol": 0.0,
+     "ok": true
+    },
+    {
+     "check": "darp_optimal_division",
+     "ok": true,
+     "message": null
+    }
+   ],
+   "errors": [],
+   "passed": true,
+   "time": 0.040255416999571025
+  },
+  {
+   "case": "darp_uneven",
+   "planner": "darp_stc",
+   "source": "Kapoutsis et al. (2017): fair division for a number of cells not divisible by the team size",
+   "results": [
+    {
+     "metric": "coverage_ratio",
+     "value": 0.9843087362171332,
+     "expected": 0.97,
+     "kind": "ge",
+     "rel_tol": 0.0,
+     "abs_tol": 0.0,
+     "ok": true
+    },
+    {
+     "check": "darp_optimal_division",
+     "ok": true,
+     "message": null
+    }
+   ],
+   "errors": [],
+   "passed": true,
+   "time": 0.04238358297152445
+  }
+ ],
+ "internal_passed": true,
+ "published": {
+  "applicable": false
+ },
+ "summary": "2/2 cases passed; no published reference data",
+ "validated_at": "2026-09-29T16:49:15",
+ "passed": true
+}

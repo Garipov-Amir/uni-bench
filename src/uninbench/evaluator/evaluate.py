@@ -13,12 +13,33 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from ..geometry.raster import RasterGrid
-from ..trajectory import (SERVICE, TRANSIT, TURN, TrajectorySet, Validity, retime_set, validate_set)
+from ..trajectory import (SERVICE, TRANSIT, TURN, TrajectorySet, Validity, canonicalize_set, retime_set,
+                          validate_set, validate_turning_radius)
 from .collisions import capacity_violations, inter_robot_conflicts, static_collisions
 from .coverage import CoverageMap, coverage_map
 
-COVERAGE_KEYS = ("coverage_ratio", "overlap_ratio")
+# metrics that depend on the evaluation raster (all others are computed from the
+# trajectories alone and do not change with delta_e); the value is the floor of the
+# denominator of the relative change: ratios use 1 (coverage) or 0.05 (overlap),
+# areas the coverable area mu(F*)
+RASTER_METRICS = {"coverage_ratio": 1.0, "overlap_ratio": 0.05, "uncovered_area": "area",
+                  "uncovered_representation": "area", "uncovered_planning": "area"}
+COVERAGE_KEYS = tuple(RASTER_METRICS)
+ALWAYS_REPORTED = ("coverage_ratio", "coverable_area", "T_LB")  # needed for the outcome and normalisation
 MAX_SENSITIVITY_CELLS = 2.5e7
+
+
+def _max_rel_change(coarse: dict, fine: dict, area: float) -> tuple[float, str]:
+    worst, which = 0.0, ""
+    for k, floor in RASTER_METRICS.items():
+        a, b = coarse.get(k), fine.get(k)
+        if a is None or b is None:
+            continue
+        den = max(abs(b), area if floor == "area" else floor, 1e-12)
+        rel = abs(a - b) / den
+        if rel > worst:
+            worst, which = rel, k
+    return worst, which
 
 
 @dataclass
@@ -94,10 +115,18 @@ def evaluate(inst, trajectories: TrajectorySet, reconstruction=None, record_even
     res = inst.eval_resolution()
     pos_tol = max(1e-6, 0.5 * res)
     agri = "agricultural" in profiles
-    validity = validate_set(trajectories, inst, pos_tol, check_turn_radius=agri)
+    validity = validate_set(trajectories, inst, pos_tol)
     if not validity.valid:
         return Evaluation("invalid", {}, validity, res, {}, eval_time=time.perf_counter() - t0)
-    retimed = retime_set(trajectories, inst.team)
+    canonical, inserted = canonicalize_set(trajectories, inst.team)
+    if inserted:
+        validity.warnings.append("heading changes without turn segments were turned into explicit turns: " +
+                                 ", ".join(f"{rid} {n}" for rid, n in sorted(inserted.items())))
+    if agri:
+        validate_turning_radius(canonical, inst, validity)
+        if not validity.valid:
+            return Evaluation("invalid", {}, validity, res, {}, eval_time=time.perf_counter() - t0)
+    retimed = retime_set(canonical, inst.team)
     robots = {r.id: r for r in inst.team}
 
     # ------------------------------------------------ coverage and resolution
@@ -112,9 +141,8 @@ def evaluate(inst, trajectories: TrajectorySet, reconstruction=None, record_even
                 sens["skipped"] = "grid too large for the refined check"
                 break
             fine, fine_map = coverage_metrics(inst, retimed, res / 2, reconstruction, record_events)
-            floors = {"coverage_ratio": 1.0, "overlap_ratio": 0.05}
-            rel = max(abs(cov[k] - fine[k]) / max(abs(fine[k]), floors[k]) for k in COVERAGE_KEYS)
-            sens["checks"].append({"delta_e": res, "delta_check": res / 2, "max_rel_change": rel})
+            rel, which = _max_rel_change(cov, fine, inst.derived.coverable_area)
+            sens["checks"].append({"delta_e": res, "delta_check": res / 2, "max_rel_change": rel, "metric": which})
             if rel <= es.sensitivity_tolerance:
                 break
             if sens["refinements"] >= es.max_refinements:
@@ -185,5 +213,8 @@ def evaluate(inst, trajectories: TrajectorySet, reconstruction=None, record_even
         status = "incomplete"
     else:
         status = "success"
+    if es.metrics:  # active metric set of the instance's evaluation settings
+        keep = set(es.metrics) | set(ALWAYS_REPORTED) | {"per_robot"}
+        metrics = {k: v for k, v in metrics.items() if k in keep}
     return Evaluation(status, metrics, validity, res, sens, coverage=cmap, retimed=retimed,
                       eval_time=time.perf_counter() - t0)

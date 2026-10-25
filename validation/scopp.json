@@ -1,0 +1,46 @@
+{
+ "planner": "scopp",
+ "version": "1.0",
+ "cases": [
+  {
+   "case": "scopp_partition",
+   "planner": "scopp",
+   "source": "Collins et al. (2021): Lloyd clustering and the conflict auction assign every square cell to exactly one robot; nearest-neighbour paths visit all cells",
+   "results": [
+    {
+     "metric": "coverage_ratio",
+     "value": 0.9929883138564274,
+     "expected": 0.97,
+     "kind": "ge",
+     "rel_tol": 0.0,
+     "abs_tol": 0.0,
+     "ok": true
+    },
+    {
+     "metric": "static_collision_time",
+     "value": 0.0,
+     "expected": 0.0,
+     "kind": "eq",
+     "rel_tol": 0.0,
+     "abs_tol": 1e-09,
+     "ok": true
+    },
+    {
+     "check": "cells_assigned_once",
+     "ok": true,
+     "message": null
+    }
+   ],
+   "errors": [],
+   "passed": true,
+   "time": 0.040476709022186697
+  }
+ ],
+ "internal_passed": true,
+ "published": {
+  "applicable": false
+ },
+ "summary": "1/1 cases passed; no published reference data",
+ "validated_at": "2026-09-29T16:49:16",
+ "passed": true
+}

@@ -12,8 +12,18 @@ import importlib
 from .base import (CONSTRAINTS, PROFILE_CONSTRAINTS, HyperParam, Manifest, PlanContext, Planner, PlanResult, Stage,
                    StagedPlanner, admission, required_constraints)
 from .darp import DARPBF, DARPSTC
+from .ga_targets import GATargets
+from .gm_vpc import GMVPC
+from .karapetyan import KarapetyanCRC
+from .ls_mcpp import LSMCPP
+from .mcfs import MCFS
+from .mfc import MFC
+from .mip import MIP
 from .mstc import MSTC
+from .mstc_star import MSTCStar
+from .scopp import SCoPP
 from .stc import STC
+from .tmstc_star import TMSTCStar
 from .sweep import BCD, SwathBF
 from .targets import KMeansTSP
 
@@ -25,7 +35,7 @@ def register(cls: type[Planner]) -> type[Planner]:
     return cls
 
 
-for _cls in (STC, MSTC, DARPSTC, DARPBF, SwathBF, BCD, KMeansTSP):
+for _cls in (STC, MSTC, MSTCStar, TMSTCStar, MFC, MIP, LSMCPP, DARPSTC, DARPBF, GMVPC, SwathBF, MCFS, BCD, KarapetyanCRC, SCoPP, KMeansTSP, GATargets):
     register(_cls)
 
 

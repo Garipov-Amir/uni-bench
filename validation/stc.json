@@ -1,0 +1,88 @@
+{
+ "planner": "stc",
+ "version": "1.1",
+ "cases": [
+  {
+   "case": "stc_open_rectangle",
+   "planner": "stc",
+   "source": "Gabriely & Rimon (2001): the circumnavigation of a spanning tree visits every sub-cell exactly once; on an 8x6 area with 1x1 sub-cells the open tour has 47 unit moves",
+   "results": [
+    {
+     "metric": "path_length",
+     "value": 47.0,
+     "expected": 47.0,
+     "kind": "eq",
+     "rel_tol": 0.0,
+     "abs_tol": 1e-06,
+     "ok": true
+    },
+    {
+     "metric": "coverage_ratio",
+     "value": 0.9895397489539749,
+     "expected": 0.98,
+     "kind": "ge",
+     "rel_tol": 0.0,
+     "abs_tol": 0.0,
+     "ok": true
+    },
+    {
+     "metric": "static_collision_time",
+     "value": 0.0,
+     "expected": 0.0,
+     "kind": "eq",
+     "rel_tol": 0.0,
+     "abs_tol": 1e-09,
+     "ok": true
+    },
+    {
+     "check": "each_subcell_once",
+     "ok": true,
+     "message": null
+    }
+   ],
+   "errors": [],
+   "passed": true,
+   "time": 0.00679358298657462
+  },
+  {
+   "case": "stc_obstacle",
+   "planner": "stc",
+   "source": "Gabriely & Rimon (2001): coarse cells blocked by an obstacle are excluded and the remaining 72 sub-cells are visited once (71 unit moves)",
+   "results": [
+    {
+     "metric": "path_length",
+     "value": 71.0,
+     "expected": 71.0,
+     "kind": "eq",
+     "rel_tol": 0.0,
+     "abs_tol": 1e-06,
+     "ok": true
+    },
+    {
+     "metric": "static_collision_time",
+     "value": 0.0,
+     "expected": 0.0,
+     "kind": "eq",
+     "rel_tol": 0.0,
+     "abs_tol": 1e-09,
+     "ok": true
+    },
+    {
+     "check": "each_subcell_once",
+     "ok": true,
+     "message": null
+    }
+   ],
+   "errors": [],
+   "passed": true,
+   "time": 0.013164500007405877
+  }
+ ],
+ "internal_passed": true,
+ "published": {
+  "applicable": false
+ },
+ "summary": "2/2 cases passed; no published reference data",
+ "validated_at": "2026-09-29T16:49:16",
+ "passed": true
+}

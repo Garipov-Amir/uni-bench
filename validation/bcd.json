@@ -1,0 +1,46 @@
+{
+ "planner": "bcd",
+ "version": "1.1",
+ "cases": [
+  {
+   "case": "bcd_single_hole",
+   "planner": "bcd",
+   "source": "Choset (2000): one rectangular hole yields four boustrophedon cells; the cells are covered completely",
+   "results": [
+    {
+     "metric": "coverage_ratio",
+     "value": 0.9987473903966596,
+     "expected": 0.98,
+     "kind": "ge",
+     "rel_tol": 0.0,
+     "abs_tol": 0.0,
+     "ok": true
+    },
+    {
+     "metric": "static_collision_time",
+     "value": 0.0,
+     "expected": 0.0,
+     "kind": "eq",
+     "rel_tol": 0.0,
+     "abs_tol": 1e-09,
+     "ok": true
+    },
+    {
+     "check": "four_bcd_cells",
+     "ok": true,
+     "message": null
+    }
+   ],
+   "errors": [],
+   "passed": true,
+   "time": 0.03694808401633054
+  }
+ ],
+ "internal_passed": true,
+ "published": {
+  "applicable": false
+ },
+ "summary": "1/1 cases passed; no published reference data",
+ "validated_at": "2026-09-29T16:49:15",
+ "passed": true
+}

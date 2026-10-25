@@ -75,7 +75,7 @@ When a background job finishes, a notification appears in the corner. It is gree
 ## Planners (3)
 
 The table lists every registered planner with its family, mode (black-box or staged), whether it is stochastic,
-and its latest validation result. Compositions are marked with `*`.
+and its latest validation result. Compositions and baselines are marked with `*`.
 
 The detail pane shows the description, reference, adapter, supported constraints, pipeline stages, and a table of
 hyperparameters with defaults, ranges and meaning.

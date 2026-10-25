@@ -1,0 +1,78 @@
+{
+ "planner": "swath_bf",
+ "version": "1.1",
+ "cases": [
+  {
+   "case": "swath_rectangle",
+   "planner": "swath_bf",
+   "source": "Boustrophedon on a 10x6 rectangle with unit width: 6 swaths of 9 m and 5 unit connections (59 m), no overlap",
+   "results": [
+    {
+     "metric": "path_length",
+     "value": 59.0,
+     "expected": 59.0,
+     "kind": "eq",
+     "rel_tol": 0.01,
+     "abs_tol": 0.0,
+     "ok": true
+    },
+    {
+     "metric": "coverage_ratio",
+     "value": 0.9916387959866221,
+     "expected": 0.99,
+     "kind": "ge",
+     "rel_tol": 0.0,
+     "abs_tol": 0.0,
+     "ok": true
+    },
+    {
+     "metric": "overlap_ratio",
+     "value": 0.008361204013377926,
+     "expected": 0.02,
+     "kind": "le",
+     "rel_tol": 0.0,
+     "abs_tol": 0.0,
+     "ok": true
+    }
+   ],
+   "errors": [],
+   "passed": true,
+   "time": 0.010781124990899116
+  },
+  {
+   "case": "swath_perimeter_obstacle",
+   "planner": "swath_bf",
+   "source": "Swaths with a contour pass around the boundary and a rotated obstacle cover the field completely",
+   "results": [
+    {
+     "metric": "coverage_ratio",
+     "value": 0.9961664841182913,
+     "expected": 0.99,
+     "kind": "ge",
+     "rel_tol": 0.0,
+     "abs_tol": 0.0,
+     "ok": true
+    },
+    {
+     "metric": "static_collision_time",
+     "value": 0.0,
+     "expected": 0.0,
+     "kind": "eq",
+     "rel_tol": 0.0,
+     "abs_tol": 1e-09,
+     "ok": true
+    }
+   ],
+   "errors": [],
+   "passed": true,
+   "time": 0.03906183398794383
+  }
+ ],
+ "internal_passed": true,
+ "published": {
+  "applicable": false
+ },
+ "summary": "2/2 cases passed; no published reference data",
+ "validated_at": "2026-09-29T16:49:16",
+ "passed": true
+}

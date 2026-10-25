@@ -8,8 +8,13 @@ every segment between consecutive waypoints carries a label
 * ``turn``    -- in-place heading change (tool inactive unless declared),
 * ``wait``    -- standing still for a declared duration.
 
-The evaluator ignores planner time stamps and re-times every trajectory with
-the motion model of the instance (:func:`retime`).
+The evaluator first brings every trajectory into a normal form
+(:func:`canonicalize`): motion segments point in the direction of travel and
+every heading change -- including the one from the declared start heading --
+is an explicit turn segment.  It then ignores planner time stamps and re-times
+the trajectory with the motion model of the instance (:func:`retime`), so every
+heading change costs the declared turn time whether or not the planner
+labelled it.
 """
 
 from __future__ import annotations
@@ -259,6 +264,76 @@ def from_labelled_polyline(robot_id: str, pts, seg_labels, start_psi: float | No
     return b.build()
 
 
+# ------------------------------------------------------------------ normal form
+def canonicalize(traj: Trajectory, start_psi: float, angle_tol: float = 1e-6) -> tuple[Trajectory, int]:
+    """Normal form of a (validated) trajectory; returns it and the number of turns inserted.
+
+    * the robot starts with the declared heading ``start_psi``;
+    * the heading of a motion segment is its direction of travel (a footprint
+      that rotates with the robot is swept in that orientation);
+    * a heading change that the planner did not express as a ``turn`` segment
+      becomes one; the tool stays active through it only when both adjacent
+      segments are active;
+    * turn segments rotate from the actual current heading to their declared
+      end heading, and zero-length motion segments are dropped.
+    """
+    xy = [traj.xy[0].copy()]
+    psi = [float(start_psi)]
+    labels, active, wait = [], [], []
+    inserted = 0
+    cur = float(start_psi)
+    prev_active = False
+
+    def add(p, h, lab, act, w=0.0):
+        xy.append(np.asarray(p, dtype=float).copy())
+        psi.append(float(h))
+        labels.append(lab)
+        active.append(bool(act))
+        wait.append(float(w))
+
+    for k in range(traj.K):
+        p0, p1 = traj.xy[k], traj.xy[k + 1]
+        lab = str(traj.labels[k])
+        act = bool(traj.active[k])
+        if lab == TURN:
+            d = float(wrap_angle(traj.psi[k + 1] - cur))
+            if abs(d) > angle_tol:
+                add(p1, cur + d, TURN, act)
+                cur += d
+            prev_active = act
+            continue
+        if lab == WAIT:
+            add(p1, cur, WAIT, False, traj.wait[k])
+            prev_active = False
+            continue
+        L = math.hypot(p1[0] - p0[0], p1[1] - p0[1])
+        if L <= EPS:
+            continue
+        h = math.atan2(p1[1] - p0[1], p1[0] - p0[0])
+        d = float(wrap_angle(h - cur))
+        if abs(d) > angle_tol:
+            add(p0, cur + d, TURN, prev_active and act)
+            inserted += 1
+        cur = h
+        add(p1, h, lab, act)
+        prev_active = act
+    out = Trajectory(traj.robot_id, np.array(xy), np.array(psi), np.array(labels, dtype="<U7"),
+                     np.array(active, dtype=bool), np.array(wait, dtype=float))
+    return out, inserted
+
+
+def canonicalize_set(ts: TrajectorySet, team) -> tuple[TrajectorySet, dict]:
+    starts = {r.id: r.start[2] for r in team}
+    out = TrajectorySet(metadata=dict(ts.metadata))
+    inserted = {}
+    for tr in ts:
+        c, n = canonicalize(tr, starts[tr.robot_id])
+        out.add(c)
+        if n:
+            inserted[tr.robot_id] = n
+    return out, inserted
+
+
 # ---------------------------------------------------------------------- timing
 def retime(traj: Trajectory, speed: float, turn_cost: float) -> Trajectory:
     """Re-time a trajectory with the instance motion model.
@@ -300,7 +375,10 @@ class Validity:
 
 
 def validate_set(ts: TrajectorySet, inst, pos_tol: float, check_turn_radius: bool = False) -> Validity:
-    """Format validity of a trajectory set for an instance (Section: common trajectory format)."""
+    """Format validity of a trajectory set for an instance (Section: common trajectory format).
+
+    The turning radius is checked on the normal form (see :func:`validate_turning_radius`).
+    """
     v = Validity()
     ids = {r.id for r in inst.team}
     got = set(ts.trajectories)
@@ -332,13 +410,6 @@ def validate_set(ts: TrajectorySet, inst, pos_tol: float, check_turn_radius: boo
             v.fail(f"{r.id}: discontinuity (a turn or wait segment moves the robot)")
         if np.any(tr.wait[tr.labels == WAIT] < 0):
             v.fail(f"{r.id}: negative wait duration")
-        moving = ~stationary & (L > EPS)
-        if np.any(moving):
-            d = np.diff(tr.xy, axis=0)[moving]
-            h = np.arctan2(d[:, 1], d[:, 0])
-            err = np.abs(wrap_angle(h - tr.psi[:-1][moving])) + np.abs(wrap_angle(h - tr.psi[1:][moving]))
-            if np.any(err > 1e-3):
-                v.warnings.append(f"{r.id}: motion heading differs from waypoint heading")
         if inst.task.return_to_depot:
             depot = r.depot if r.depot is not None else r.start[:2]
             if math.hypot(tr.xy[-1, 0] - depot[0], tr.xy[-1, 1] - depot[1]) > pos_tol:
@@ -347,9 +418,20 @@ def validate_set(ts: TrajectorySet, inst, pos_tol: float, check_turn_radius: boo
             if len(tr.t) != K + 1 or np.any(np.diff(tr.t) < -1e-9):
                 v.warnings.append(f"{r.id}: planner time stamps are not monotone (ignored; re-timed)")
         if check_turn_radius and r.min_turn_radius:
-            ok, worst = turning_radius_ok(tr, r.min_turn_radius)
+            ok, worst = turning_radius_ok(canonicalize(tr, r.start[2])[0], r.min_turn_radius)
             if not ok:
                 v.fail(f"{r.id}: violates the minimum turning radius (local radius {worst:.3g} < {r.min_turn_radius:.3g})")
+    return v
+
+
+def validate_turning_radius(canonical: TrajectorySet, inst, v: Validity) -> Validity:
+    """Minimum-turning-radius feasibility of normal-form trajectories (agricultural profile)."""
+    for r in inst.team:
+        if not r.min_turn_radius or r.id not in canonical.trajectories:
+            continue
+        ok, worst = turning_radius_ok(canonical[r.id], r.min_turn_radius)
+        if not ok:
+            v.fail(f"{r.id}: violates the minimum turning radius (local radius {worst:.3g} < {r.min_turn_radius:.3g})")
     return v
 
 

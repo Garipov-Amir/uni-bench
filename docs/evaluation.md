@@ -1,8 +1,14 @@
 # Evaluation and metrics
 
 The evaluator computes every metric from two inputs only: the **canonical instance** and the **trajectory set** a
-planner produced. It never looks inside a planner. It re-times every trajectory with the instance's motion model,
-so planners cannot gain an advantage from their own timing assumptions.
+planner produced. It never looks inside a planner. It brings every trajectory into a normal form and re-times it
+with the instance's motion model, so planners cannot gain an advantage from their own timing assumptions:
+
+* the robot starts with the declared start heading;
+* a motion segment faces its direction of travel (a rectangular footprint is swept in that orientation);
+* every heading change is a turn segment and costs `turn_cost` × |Δψ|, whether or not the planner labelled it
+  (a warning lists the turns the evaluator had to insert);
+* waits keep their declared durations; planner time stamps are only checked for consistency.
 
 ## Outcomes
 
@@ -16,6 +22,10 @@ Every run ends with exactly one outcome. All outcomes are stored; failed runs ar
 | `timeout` | a planner call exceeded the time limit (plus `grace`) and was killed |
 | `crash` | the planner or the adapter raised an error, or the worker died (e.g. out of memory) |
 | `not_applicable` | the planner does not support a constraint this instance needs; not a failure, and excluded from success rates |
+
+Failed runs carry `failure_attribution`: `adapter` when the adapter's representation was flagged by the fidelity
+check (ε̄ > `eps_max`) or the adapter itself failed, otherwise `planner`. Reports list adapter-attributed failures
+separately and do not use those instances to compare that planner (R3).
 
 The failure reason is stored in the run's `reason` field, and the full traceback of a crash in `traceback`.
 
@@ -60,6 +70,13 @@ All metrics are stored per run under `metrics` in `runs.jsonl`, and flattened in
 Per-robot times, lengths and turns are stored in `per_robot`. The planning time (`planning_time`, the median over
 repetitions), `peak_rss_mb`, `adapter_time` and `eval_time` are stored at the top level of each run record.
 
+* **Planning time** is the wall-clock time of the planner call (plus any framework stage composed with it). Every
+  call -- each repetition and each seed -- receives a fresh copy of the adapter output, so structures a planner
+  builds lazily (transit graphs, shortest-path trees) are never reused from an earlier call, seed or planner.
+* **Peak memory** (`peak_rss_mb`) is the peak resident set size of the worker process at the end of planning. Every
+  run executes in a fresh worker process (`max_tasks_per_worker: 1`), so the value belongs to that run; the
+  details are under `memory`. Runs that shared a process (`inline`) have no `peak_rss_mb`.
+
 ## How sweeps are counted
 
 The workspace is rasterized at the **evaluation resolution** δ_e, by default one tenth of the smallest working
@@ -71,9 +88,11 @@ robot's tool footprint while the tool is active:
 * an inactive in-place turn separates two passes. The tool stays active during turns only if the planner declares
   it (`tool_active_in_turns`).
 
-Rasterization introduces its own error. The evaluator therefore re-evaluates every plan at δ_e/2. If coverage or
-overlap change by more than `sensitivity_tolerance` (1 % relative), it refines δ_e, at most `max_refinements`
-times. The outcome of this check is stored under `sensitivity` in the run record.
+Rasterization introduces its own error. The evaluator therefore re-evaluates every plan at δ_e/2. If any
+raster-dependent metric -- coverage, overlap, uncovered area and its representation/planning split -- changes by more
+than `sensitivity_tolerance` (1 % relative; areas relative to the coverable area), it refines δ_e, at most
+`max_refinements` times. All other metrics are computed from the trajectories alone and do not depend on δ_e. The
+outcome of this check is stored under `sensitivity` in the run record.
 
 ## Collisions, conflicts and constraints
 
@@ -124,6 +143,8 @@ This prints the outcome, the failure reasons and all metrics as JSON.
 Rules:
 
 * Consecutive waypoints must be continuous. Turn and wait segments must not move the robot.
+* Heading changes may be given as `turn` segments (recommended); otherwise the evaluator inserts them and charges
+  their turn time. Reversing is not supported: a segment always faces its direction of travel.
 * When the task requires it, the last waypoint must be the depot (or the start).
 * Labels may also be given as a string of digits (`0` service, `1` transit, `2` turn, `3` wait), and `active` as
   a string of `0`/`1`. This is the compact form uninbench itself writes.

@@ -30,8 +30,12 @@ DEFAULTS: dict[str, Any] = {
     "store": {"trajectories": True, "coverage": True, "events": True},
     "tuning_dir": None,
     "validation_dir": None,
-    "require_validation": False,
+    "require_validation": True,  # planners enter an experiment only after passing validation (R9)
+    "require_published_validation": True,  # ... including published results, where the planner has them
     "grace": 5.0,
+    "max_tasks_per_worker": 1,  # fresh worker process per run: peak memory is attributable to the run
+    "deconfliction_stage": None,  # 'prioritized_waiting': compose planners without own deconfliction (R12)
+    "native_graph": True,  # graph-native instances (IF4) reach grid planners through the identity adapter
 }
 
 

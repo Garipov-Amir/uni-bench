@@ -60,8 +60,10 @@ workers: 8
 | `start_configs` | `[clustered]` | `clustered`, `dispersed` or `given` |
 | `planners` | *(required)* | list of planner specifications (see below) |
 | `adapters` | `{}` | adapter parameters per adapter name (`grid`, `graph`, `geometric`, `swath`, `target`); they override the planner's defaults for every planner using that adapter |
+| `native_graph` | true | grid planners receive graph-native instances (SafeLog, published MCPP instances) through the identity `graph` adapter |
 | `factors.planning_resolution` | `[1.0]` | multipliers of the grid resolution (grid planners only); each value becomes its own planner variant, `name@dp0.5` |
 | `profiles` | `[core]` | `core`, `agricultural`, `deconfliction`, `heterogeneous` (see [Profiles](#profiles)) |
+| `deconfliction_stage` | – | `prioritized_waiting`: planners without their own deconfliction take part in the deconfliction profile as compositions `<planner>+pw*`; without it they are *not applicable* there |
 | `profile_params` | `{}` | parameters per profile, e.g. `{agricultural: {capacity: 0.3}}` |
 | `task` | `{}` | overrides of the instance task: `tolerance`, `time_limit` (s, per planner call), `memory_limit_mb`, `return_to_depot` |
 | `evaluation` | `{}` | overrides of the evaluation settings (see below) |
@@ -70,11 +72,13 @@ workers: 8
 | `workers` | 1 | parallel worker processes |
 | `eps_max` | 0.05 | adapter fidelity tolerance: runs whose relative reconstruction error exceeds it are *flagged* |
 | `tuning_dir` | – | directory of frozen tuned configurations (needed for `configs: [tuned]`) |
-| `require_validation` | false | exclude planners whose validation report (`validation_dir`, default `validation/`) did not pass |
-| `validation_dir` | – | where validation reports are read from |
+| `require_validation` | true | planners enter only after passing validation (R9). A missing report, or one for another planner version, is produced on the spot; failing planners are listed in `excluded.json` |
+| `require_published_validation` | true | for planners with published reference results (`mfc`, `mstc_star`, `mip`, `ls_mcpp`) validation includes reproducing them; needs `datasets/MIP-MCPP` (`scripts/fetch_datasets.sh`) |
+| `validation_dir` | `<output>/../validation` | where validation reports are read from and written to |
 | `store` | all true | `{trajectories, coverage, events}`: which artefacts to store per run (the replay needs all three) |
 | `grace` | 5.0 | seconds added to the time limit before a planner call is killed |
-| `inline` | false | run in-process instead of in worker processes (debugging; no timeouts) |
+| `max_tasks_per_worker` | 1 | runs per worker process before it is replaced; 1 makes the peak memory of every run attributable to it |
+| `inline` | false | run in-process instead of in worker processes (debugging; no timeouts, no per-run peak memory) |
 
 ### Instance sources
 
@@ -87,7 +91,7 @@ Each entry is either a path string or a mapping:
 | `family` | override the family label (families are compared separately in reports) |
 | `split` | split for this source (overrides the top-level `split`) |
 | `limit` | use at most this many instances |
-| `tuning_fraction`, `stratify` | how to split instances that have no split yet (generated or unsplit files) |
+| `tuning_fraction`, `stratify` | how to split instances that have no split yet (generated or unsplit files); `stratify` defaults to `auto`, the factor the family varies |
 
 ### Planner specifications
 
@@ -105,6 +109,8 @@ Admission is checked for every instance:
   `excluded.json`.
 * A planner that lacks a constraint the instance needs is recorded as **not applicable**. Examples: a
   single-robot planner with `m > 1`, or a planner without turning-radius support in the agricultural profile.
+* The evaluation resolution must be finer than the planning resolution (R10); a `planning_resolution` factor that
+  violates this stops the experiment with an error.
 
 ### Evaluation settings
 
@@ -112,12 +118,13 @@ Admission is checked for every instance:
 |-----|---------|---------|
 | `resolution` | – | evaluation cell size δ_e in metres (overrides the factor) |
 | `resolution_factor` | 0.1 | δ_e = factor × smallest working width |
-| `sensitivity` | true | re-evaluate at δ_e/2 and refine if coverage or overlap change more than the tolerance |
+| `sensitivity` | true | re-evaluate at δ_e/2 and refine if any raster-dependent metric (coverage, overlap, uncovered area and its representation/planning split) changes more than the tolerance |
 | `sensitivity_tolerance` | 0.01 | relative tolerance of the sensitivity check |
 | `max_refinements` | 1 | how often δ_e may be halved |
 | `collision` | `invalidate` | a static collision makes the run invalid |
 | `conflicts` | `report` | inter-robot conflicts are reported (`report`) or make the run invalid (`enforce`) |
 | `turn_merge_distance` | w/2 | heading changes closer than this count as one turn |
+| `metrics` | all | active metric set: only these metrics (plus coverage ratio, coverable area and T_LB) are stored |
 
 ## Factor sweeps
 
@@ -144,7 +151,7 @@ declares every constraint of the profile; otherwise its runs are *not applicable
 |---------|------|----------------------|
 | `core` | nothing (the default) | – |
 | `agricultural` | minimum turning radius, capacity with depot trips, rectangular implement, headlands, return to depot | `capacity`, `turning_radius` |
-| `deconfliction` | inter-robot conflicts become hard constraints (planners may insert waits) | `deconfliction` |
+| `deconfliction` | inter-robot conflicts become hard constraints (planners may insert waits); with `deconfliction_stage: prioritized_waiting` planners without own deconfliction run as compositions `+pw*` | `deconfliction` (for teams of two or more) |
 | `heterogeneous` | robots differ in speed (and optionally width) | `heterogeneous` |
 
 `profile_params`:
@@ -185,10 +192,11 @@ discards the old records.
 
 * **Workers:** `workers:` (or `--workers`) sets the number of worker processes. Each planner call runs in a worker
   with its own timeout. A slightly smaller number than the physical core count gives the most stable timings.
-* **Timings:** planning time is the wall-clock time of the planner call only. Adapter and evaluation time are
-  recorded separately. For deterministic planners the median of `repetitions` calls is reported.
-* **Memory limit:** `memory_limit_mb` is enforced with `RLIMIT_AS` on Linux; macOS does not enforce it. Peak
-  memory is recorded either way.
+* **Timings:** planning time is the wall-clock time of the planner call only, on a fresh copy of the adapter
+  output. Adapter and evaluation time are recorded separately. For deterministic planners the median of
+  `repetitions` calls is reported.
+* **Memory limit:** `memory_limit_mb` is enforced with `RLIMIT_AS` on Linux and by polling the workers' resident
+  set size on macOS. Peak memory is recorded per run (one fresh worker process per run).
 * **Clusters:** split a large study into several configurations, for example one per family, with separate
   `output` directories. Run each with `uninbench run` in a batch job, then build one report per results
   directory. Pin the software with the Docker image; its tag is recorded in every run.

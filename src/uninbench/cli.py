@@ -22,7 +22,7 @@ def _kv(items) -> dict:
 def _split(out_dir, fraction, stratify):
     from .instance.splits import split_directory
 
-    s = split_directory(out_dir, fraction, stratify)
+    s = split_directory(out_dir, fraction, None if stratify in (None, "none") else stratify)
     n_t = sum(v == "tuning" for v in s.values())
     print(f"{len(s)} instances in {out_dir} ({n_t} tuning / {len(s) - n_t} test)")
 
@@ -94,15 +94,18 @@ def cmd_adapt(a):
 def cmd_validate(a):
     from .validation import validate_all
 
-    res = validate_all(a.out, a.planner or None)
+    res = validate_all(a.out, a.planner or None, published=not a.no_published)
     ok = True
     for n, r in res.items():
         print(f"{n:12s} {'PASS' if r['passed'] else 'FAIL'}  {r['summary']}")
-        for c in r["cases"]:
+        pub = r.get("published") or {}
+        for c in list(r["cases"]) + list(pub.get("cases") or []):
             if not c["passed"]:
-                ok = False
-                bad = [x for x in c["results"] if not x["ok"]]
+                bad = [x for x in c["results"] if not x.get("ok")]
                 print(f"    {c['case']}: {bad} {c['errors']}")
+        if pub.get("applicable") and not pub.get("available"):
+            print(f"    {pub.get('reason')}")
+        ok &= bool(r["passed"])
     return 0 if ok else 1
 
 
@@ -253,7 +256,8 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--cell-size", type=float, default=2.0, help="safelog: cell size in metres (default: 2)")
     g.add_argument("--param", action="append", help="generator parameter key=value")
     g.add_argument("--tuning-fraction", type=float, default=0.2, help="share of the tuning split (default: 0.2)")
-    g.add_argument("--stratify", default=None, help="factor to stratify the split by")
+    g.add_argument("--stratify", default="auto", help="factor(s) to stratify the split by; 'auto': the factor the "
+                   "instance family varies; 'none': no stratification")
     g.set_defaults(fn=cmd_generate)
 
     i = sub.add_parser("import", help="import a public dataset into canonical instances")
@@ -262,13 +266,15 @@ def build_parser() -> argparse.ArgumentParser:
     i.add_argument("--out", required=True, help="output directory for the instance set, e.g. data/IF1")
     i.add_argument("--param", action="append", help="importer parameter key=value (e.g. width=3.0)")
     i.add_argument("--tuning-fraction", type=float, default=0.2, help="share of the tuning split (default: 0.2)")
-    i.add_argument("--stratify", default=None, help="factor to stratify the split by")
+    i.add_argument("--stratify", default="auto", help="factor(s) to stratify the split by; 'auto': the factor the "
+                   "instance family varies; 'none': no stratification")
     i.set_defaults(fn=cmd_import)
 
     s = sub.add_parser("split", help="(re)assign tuning/test splits of a directory")
     s.add_argument("dir", help="instance set directory")
     s.add_argument("--tuning-fraction", type=float, default=0.2, help="share of the tuning split (default: 0.2)")
-    s.add_argument("--stratify", default=None, help="factor to stratify the split by")
+    s.add_argument("--stratify", default="auto", help="factor(s) to stratify the split by; 'auto': the factor the "
+                   "instance family varies; 'none': no stratification")
     s.set_defaults(fn=cmd_split)
 
     s = sub.add_parser("info", help="describe instances")
@@ -288,9 +294,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--eps-max", type=float, default=0.05, help="fidelity tolerance (default: 0.05)")
     s.set_defaults(fn=cmd_adapt)
 
-    s = sub.add_parser("validate", help="validate planner implementations (worked examples)")
+    s = sub.add_parser("validate", help="validate planner implementations (worked examples and published results)")
     s.add_argument("--planner", action="append", help="validate only this planner (repeatable)")
     s.add_argument("--out", default=None, help="directory for validation reports")
+    s.add_argument("--no-published", action="store_true",
+                   help="skip the comparison with published results (datasets/MIP-MCPP)")
     s.set_defaults(fn=cmd_validate)
 
     s = sub.add_parser("check-evaluator", help="re-evaluate AreaCoverage reference routes (sanity check)")

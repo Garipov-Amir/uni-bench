@@ -1,0 +1,46 @@
+{
+ "planner": "gm_vpc",
+ "version": "1.0",
+ "cases": [
+  {
+   "case": "gm_vpc_voronoi",
+   "planner": "gm_vpc",
+   "source": "Nair & Guruprasad (2020): the geodesic-Manhattan Voronoi partition gives contiguous regions and complete, non-overlapping coverage at grid level",
+   "results": [
+    {
+     "metric": "coverage_ratio",
+     "value": 0.9840728100113765,
+     "expected": 0.97,
+     "kind": "ge",
+     "rel_tol": 0.0,
+     "abs_tol": 0.0,
+     "ok": true
+    },
+    {
+     "metric": "overlap_ratio",
+     "value": 0.0136518771331058,
+     "expected": 0.05,
+     "kind": "le",
+     "rel_tol": 0.0,
+     "abs_tol": 0.0,
+     "ok": true
+    },
+    {
+     "check": "voronoi_property",
+     "ok": true,
+     "message": null
+    }
+   ],
+   "errors": [],
+   "passed": true,
+   "time": 0.022386458003893495
+  }
+ ],
+ "internal_passed": true,
+ "published": {
+  "applicable": false
+ },
+ "summary": "1/1 cases passed; no published reference data",
+ "validated_at": "2026-09-29T16:49:16",
+ "passed": true
+}

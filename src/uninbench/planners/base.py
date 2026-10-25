@@ -21,6 +21,7 @@ PROFILE_CONSTRAINTS = {
     "heterogeneous": {"heterogeneous"},
 }
 STAGE_KINDS = ("environment_model", "work_distribution", "route_construction", "optimization")
+PROVENANCES = ("original", "composition", "baseline")
 
 
 # ------------------------------------------------------------------ manifest
@@ -54,7 +55,11 @@ class Manifest:
     hyperparameters: list[HyperParam] = field(default_factory=list)
     mode: str = "blackbox"  # 'blackbox' | 'staged'
     stages: list[str] = field(default_factory=list)
-    composition_of: list[str] | None = None  # staged compositions are never reported as original algorithms
+    # 'original': reimplementation of the cited publication; 'composition': stages combined by the benchmark;
+    # 'baseline': a reference method written for the benchmark.  Only originals are reported under the
+    # name of a published algorithm; the others are marked in every report (R6).
+    provenance: str = "original"
+    composition_of: list[str] | None = None  # components of a composition (or of a baseline)
     distinguishes_service_transit: bool = True
     tool_active_in_turns: bool = True
     parallelism: int = 1
@@ -65,9 +70,15 @@ class Manifest:
     def defaults(self) -> dict:
         return {h.name: h.default for h in self.hyperparameters}
 
+    def __post_init__(self):
+        if self.provenance not in PROVENANCES:
+            raise ValueError(f"{self.name}: unknown provenance {self.provenance!r}")
+        if self.composition_of and self.provenance == "original":
+            self.provenance = "composition"
+
     @property
     def is_composition(self) -> bool:
-        return bool(self.composition_of)
+        return self.provenance != "original"
 
     def to_dict(self) -> dict:
         d = dict(self.__dict__)
@@ -92,14 +103,23 @@ def required_constraints(inst) -> set:
         req.add("turning_radius")
     for p in inst.task.profiles:
         req |= PROFILE_CONSTRAINTS.get(p, set())
+    if inst.m < 2:
+        req.discard("deconfliction")  # a single robot cannot conflict with another
     return req
 
 
-def admission(manifest: Manifest, inst) -> tuple[str, str | None]:
-    """'admitted', 'excluded' (task class mismatch, not compared) or 'not_applicable'."""
+def admission(manifest: Manifest, inst, deconfliction_stage: str | None = None) -> tuple[str, str | None]:
+    """'admitted', 'excluded' (task class mismatch, not compared) or 'not_applicable'.
+
+    With a framework ``deconfliction_stage`` a planner without its own
+    deconfliction is admitted to the deconfliction profile as a composition
+    (see :func:`uninbench.planners.execution.framework_stages`).
+    """
     if manifest.task_class != inst.task.task_class:
         return "excluded", f"declared task class {manifest.task_class!r} != {inst.task.task_class!r}"
     missing = required_constraints(inst) - set(manifest.constraints)
+    if deconfliction_stage and inst.m > 1:
+        missing.discard("deconfliction")
     if manifest.max_robots is not None and inst.m > manifest.max_robots:
         missing.add(f"team_size>{manifest.max_robots}")
     if missing:

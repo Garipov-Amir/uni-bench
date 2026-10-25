@@ -19,7 +19,6 @@ from shapely.geometry import LineString
 from ..geometry.decomposition import lines_of, offset_swaths, rotate
 from ..trajectory import TrajectorySet
 from .base import HyperParam, Manifest, PlanResult, Stage, StagedPlanner
-from .deconflict import maybe_deconflict
 from .sweep_common import Pass, RouteBuilder, nn_order, skip_order, split_contiguous, two_opt
 
 
@@ -183,13 +182,12 @@ class _SweepPlanner(StagedPlanner):
             ts.add(rb.run(data["routes"].get(r.id, []), passes, return_to_depot=ctx.return_to_depot))
             fallbacks += rb.dubins_fallbacks
             skipped += rb.skipped_pieces
-        ts, dinfo = maybe_deconflict(ts, rep, ctx)
         layers = rep.layers()
         assign = {r.id: [int(i) for i, _ in data["routes"].get(r.id, [])] for r in rep.team}
         layers["assignment"] = {"type": "pass_assignment",
                                 "coords": [np.round(p.pts, 4).tolist() for p in passes], "robots": assign}
         return PlanResult(ts, native=data["routes"], layers=layers,
-                          info={"dubins_fallbacks": fallbacks, "skipped_pieces": skipped, **dinfo})
+                          info={"dubins_fallbacks": fallbacks, "skipped_pieces": skipped})
 
 
 SERVICE_LINKS = HyperParam("service_links", "bool", True,
@@ -206,15 +204,16 @@ SWEEP_PARAMS = [
 class SwathBF(_SweepPlanner):
     manifest = Manifest(
         name="swath_bf",
-        version="1.0",
-        reference="Boustrophedon swath coverage with balanced contiguous splitting (cf. Fields2Cover pipeline, "
-                  "Mier et al. 2023)",
+        version="1.1",
+        reference="Benchmark composition: parallel swaths with headland/skip patterns (cf. the Fields2Cover "
+                  "pipeline, Mier et al. 2023), greedy ordering, balanced contiguous split, 2-opt",
         family="swath",
         adapter="swath",
         adapter_params={"mode": "parallel", "angle": "auto"},
-        constraints={"multi_robot", "heterogeneous", "capacity", "turning_radius", "return_to_depot",
-                     "deconfliction"},
+        constraints={"multi_robot", "heterogeneous", "capacity", "turning_radius", "return_to_depot"},
         mode="staged",
+        provenance="composition",
+        composition_of=["parallel swaths", "greedy / skip order", "contiguous split", "2-opt"],
         stages=["swath_passes", "nn_order", "contiguous_split", "two_opt"],
         hyperparameters=SWEEP_PARAMS,
         core_modules=["uninbench/planners/sweep.py", "uninbench/planners/sweep_common.py"],
@@ -226,13 +225,17 @@ class SwathBF(_SweepPlanner):
 class BCD(_SweepPlanner):
     manifest = Manifest(
         name="bcd",
-        version="1.0",
-        reference="Choset (2000), Coverage of known spaces: the boustrophedon cellular decomposition",
+        version="1.1",
+        reference="Benchmark composition: boustrophedon cellular decomposition (Choset, 2000) with boundary "
+                  "passes, greedy cell order, contiguous multi-robot split and 2-opt",
         family="geometric",
         adapter="geometric",
         adapter_params={"mode": "boustrophedon", "angle": "auto"},
-        constraints={"multi_robot", "return_to_depot", "deconfliction"},
+        constraints={"multi_robot", "return_to_depot"},
         mode="staged",
+        provenance="composition",
+        composition_of=["boustrophedon decomposition (Choset 2000)", "boundary passes", "greedy cell order",
+                        "contiguous split", "2-opt"],
         stages=["cell_passes", "cell_order", "contiguous_split", "two_opt"],
         hyperparameters=[SERVICE_LINKS, HyperParam("perimeter", "bool", True, doc="boundary-following passes"),
                          HyperParam("two_opt", "bool", False, doc="2-opt improvement of each robot's pass order"),

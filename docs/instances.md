@@ -16,9 +16,9 @@ every instance to the **tuning** or the **test** split.
 | Family | What | How to get it |
 |--------|------|---------------|
 | IF1 | polygonal environments: AreaCoverage VM25 (25 indoor), AC300 (300 outdoor, 1–15 holes), H2 | `uninbench import areacoverage` |
-| IF2 | agricultural fields with real, non-convex boundaries | `uninbench import fields` |
+| IF2 | agricultural fields with real, non-convex boundaries: the 350 fields of Fields2Benchmark | `uninbench import fields` |
 | IF3 | indoor rooms, each without and with furniture (paired) | `uninbench import rooms` |
-| IF4 | connectivity sweep: subgraphs of a 20 × 20 grid from a spanning tree to the full grid | `uninbench generate safelog` or `uninbench import safelog` |
+| IF4 | connectivity sweep: the 21 published SafeLog maps, subgraphs of a 20 × 20 grid from a spanning tree to an almost complete grid | `uninbench import safelog` (or a SafeLog-like `uninbench generate safelog`) |
 | IF5 | synthetic maps with controlled size, obstacle density and shape, and non-convexity | `uninbench generate synthetic` |
 
 All generation and import commands are also in the TUI and web UI (*Instances → Generate… / Import…*). Each command
@@ -66,15 +66,20 @@ half a cell wide, so every cell is exactly one STC coarse cell. The original gra
 graph-native planners (the `graph` adapter).
 
 ```bash
-# SafeLog-like sweep: random connected subgraphs, 21 densities from a spanning tree to the full grid
-uninbench generate safelog --out data/IF4 --rows 20 --cols 20 --count 1 --stratify graph_density
-# the original SafeLog graphs, one edge list per file (*.txt)
-uninbench import safelog path/to/safelog_graphs --out data/IF4
+# the published maps (Rybecky & Kulich, 2021; doi:10.5281/zenodo.4439404), downloaded by scripts/fetch_datasets.sh
+uninbench import safelog datasets/safelog --out data/IF4
+# a SafeLog-like sweep of random connected subgraphs, 21 densities (no download needed)
+uninbench generate safelog --out data/IF4 --rows 20 --cols 20 --count 1
 ```
 
-Edge list files contain one edge per line, either `u v` (row-major vertex ids) or `r1 c1 r2 c2`, with `#`
-comments. Importer parameters: `rows`, `cols` (20), `cell_size` (2.0), `robot_width` (cell/2), `pattern`
-(`*.txt`).
+The published dataset is a directory with `test_nodes.txt` (`id x y`) and `test_edges0.txt` … `test_edges20.txt`
+(one directed pair of node ids per line); the extra complete grid `test_edges.txt` is imported only with
+`--param pattern='test_edges*.txt'`. Plain edge lists (one edge per line, `u v` with row-major vertex ids or
+`r1 c1 r2 c2`, `#` comments) are read too. Importer parameters: `rows`, `cols` (20; taken from the node file when
+present), `cell_size` (2.0), `robot_width` (cell/2), `pattern`.
+
+Grid planners receive the original graph through the identity `graph` adapter (`native_graph: true`), so their
+input is exactly the published map.
 
 ## Public datasets
 
@@ -120,8 +125,11 @@ next point; this is the convention that reproduces complete coverage.
 ### Agricultural fields (IF2)
 
 ```bash
-uninbench import fields datasets/fields --out data/IF2 --param width=3.0
+# Fields2Benchmark, 350 fields as WKT in longitude/latitude (doi:10.5281/zenodo.14524734; scripts/fetch_datasets.sh)
+uninbench import fields datasets/fields2benchmark/wkt --out data/IF2 --param width=3.0
 ```
+
+Geographic coordinates are projected to a local metric frame (the projection is stored in the metadata).
 
 Accepted files, one field per file:
 
@@ -161,20 +169,31 @@ For every map `<name>.png` that has a furnished variant `<name>_furnitures.png`,
 | `min_room_area` | 4.0 | ignore regions smaller than this (m²) |
 | `limit` | – | at most this many maps |
 
+## Published MCPP instances (validation)
+
+The ten instances of Tang & Ma (2023) -- floor, maze and terrain grids with 4 to 12 robots -- are used to validate
+MFC, MSTC\*, MIP and LS-MCPP against the coverage times published for them (see
+[Tuning and validation](tuning-and-validation.md#validation-against-published-results)). `scripts/fetch_datasets.sh`
+clones the authors' repository to `datasets/MIP-MCPP`; `uninbench.datasets.mip_mcpp.import_mip_mcpp` converts the
+pickled graphs (read with a restricted unpickler) into canonical instances of family `published`.
+
 ## Tuning and test splits
 
 Tuning must never see the instances results are reported on. Every generation and import therefore assigns each
 instance to `tuning` or `test`, deterministically from its content hash:
 
 * `--tuning-fraction` (default 0.2) is the share of each stratum that goes to tuning.
-* `--stratify FACTOR` builds strata from a factor, such as `obstacle_density`, `graph_density`, `holes` or
-  `width`, so that every level of the factor is represented in both splits.
+* `--stratify` (default `auto`) stratifies by the factor the family varies: `holes` (IF1, IF2), `furniture` (IF3),
+  `graph_density` (IF4), and size, obstacle density, shape and non-convexity together (IF5). Another factor name,
+  several comma-separated names, or `none` can be given. A single numeric factor is split by systematic sampling
+  along its sorted values, so its whole range is represented in both splits even when every value occurs once
+  (the 21 SafeLog densities).
 * Paired instances (the same `metadata.pair`) always share a split.
 
 To reassign splits, for example after adding instances:
 
 ```bash
-uninbench split data/IF5 --tuning-fraction 0.2 --stratify obstacle_density
+uninbench split data/IF5 --tuning-fraction 0.2            # stratified by the family's factors
 ```
 
 Experiments select a split with `split: test` (the default), `tuning` or `all`. See

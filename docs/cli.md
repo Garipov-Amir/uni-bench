@@ -15,7 +15,7 @@ background jobs, by scripts and on clusters. `uninbench <command> --help` prints
 | [`info`](#info) | describe instances |
 | [`planners`](#planners) | list registered planners and their manifests |
 | [`adapt`](#adapt) | run an adapter on an instance and print its transformation record |
-| [`validate`](#validate) | validate planner implementations (worked examples) |
+| [`validate`](#validate) | validate planner implementations (worked examples and published results) |
 | [`check-evaluator`](#check-evaluator) | re-evaluate AreaCoverage reference routes (sanity check) |
 | [`run`](#run) | run an experiment |
 | [`tune`](#tune) | tune planners on the tuning split (Bayesian optimisation) |
@@ -109,14 +109,14 @@ uninbench generate [-h] --out OUT [--count COUNT] [--seed SEED] [--sizes [SIZES 
 | `--cell-size` | safelog: cell size in metres (default: 2) | `2.0` |
 | `--param` | generator parameter key=value |  |
 | `--tuning-fraction` | share of the tuning split (default: 0.2) | `0.2` |
-| `--stratify` | factor to stratify the split by |  |
+| `--stratify` | factor(s) to stratify the split by; `auto`: the factor the instance family varies; `none`: no stratification | `auto` |
 
 Examples:
 
 ```bash
-uninbench generate synthetic --out data/IF5 --count 10 --sizes 20 40 80 --densities 0.05 0.1 0.2 --stratify obstacle_density
+uninbench generate synthetic --out data/IF5 --count 10 --sizes 20 40 80 --densities 0.05 0.1 0.2
 uninbench generate synthetic --out data/IF5-small --count 3 --param robot_width=0.5 --param min_gap=4
-uninbench generate safelog --out data/IF4 --rows 20 --cols 20 --stratify graph_density
+uninbench generate safelog --out data/IF4 --rows 20 --cols 20
 ```
 
 ## import
@@ -134,12 +134,13 @@ uninbench import [-h] --out OUT [--param PARAM] [--tuning-fraction TUNING_FRACTI
 | `--out` | output directory for the instance set, e.g. data/IF1 |  |
 | `--param` | importer parameter key=value (e.g. width=3.0) |  |
 | `--tuning-fraction` | share of the tuning split (default: 0.2) | `0.2` |
-| `--stratify` | factor to stratify the split by |  |
+| `--stratify` | factor(s) to stratify the split by; `auto`: the factor the instance family varies; `none`: no stratification | `auto` |
 
 Examples:
 
 ```bash
-uninbench import areacoverage datasets/AreaCoverage-dataset --out data/IF1 --stratify holes
+uninbench import areacoverage datasets/AreaCoverage-dataset --out data/IF1
+uninbench import safelog datasets/safelog --out data/IF4
 uninbench import fields datasets/fields --out data/IF2 --param width=3.0
 uninbench import rooms datasets/test_maps --out data/IF3 --param resolution=0.05
 uninbench import safelog datasets/safelog --out data/IF4 --param rows=20 --param cols=20
@@ -157,12 +158,12 @@ uninbench split [-h] [--tuning-fraction TUNING_FRACTION] [--stratify STRATIFY] d
 |---|---|---|
 | `dir` | instance set directory |  |
 | `--tuning-fraction` | share of the tuning split (default: 0.2) | `0.2` |
-| `--stratify` | factor to stratify the split by |  |
+| `--stratify` | factor(s) to stratify the split by; `auto`: the factor the instance family varies; `none`: no stratification | `auto` |
 
 Examples:
 
 ```bash
-uninbench split data/IF5 --tuning-fraction 0.2 --stratify obstacle_density
+uninbench split data/IF5 --tuning-fraction 0.2
 ```
 
 ## info
@@ -231,12 +232,13 @@ uninbench adapt data/IF2/field_test.json --adapter swath --param angle=longest_e
 Runs the validation cases of the planners and writes `<out>/<planner>.json`. The exit code is 1 if any case fails.
 
 ```
-uninbench validate [-h] [--planner PLANNER] [--out OUT]
+uninbench validate [-h] [--planner PLANNER] [--out OUT] [--no-published]
 ```
 
 | Argument | Meaning | Default |
 |---|---|---|
 | `--planner` | validate only this planner (repeatable) |  |
+| `--no-published` | skip the comparison with published results (`datasets/MIP-MCPP`) |  |
 | `--out` | directory for validation reports |  |
 
 Examples:

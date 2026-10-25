@@ -1,0 +1,41 @@
+{
+ "planner": "ga_targets",
+ "version": "1.0",
+ "cases": [
+  {
+   "case": "ga_targets_complete",
+   "planner": "ga_targets",
+   "source": "GA baseline: every coverage disk is visited and the balanced split keeps the imbalance low",
+   "results": [
+    {
+     "metric": "coverage_ratio",
+     "value": 0.9947844228094576,
+     "expected": 0.98,
+     "kind": "ge",
+     "rel_tol": 0.0,
+     "abs_tol": 0.0,
+     "ok": true
+    },
+    {
+     "metric": "workload_imbalance",
+     "value": 1.0318146689800798,
+     "expected": 1.3,
+     "kind": "le",
+     "rel_tol": 0.0,
+     "abs_tol": 0.0,
+     "ok": true
+    }
+   ],
+   "errors": [],
+   "passed": true,
+   "time": 0.7721943750511855
+  }
+ ],
+ "internal_passed": true,
+ "published": {
+  "applicable": false
+ },
+ "summary": "1/1 cases passed; no published reference data",
+ "validated_at": "2026-09-29T16:49:16",
+ "passed": true
+}

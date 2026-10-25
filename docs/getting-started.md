@@ -13,13 +13,16 @@ python3 -m venv .venv
 This installs the `uninbench` command into `.venv/bin`. Either activate the environment
 (`source .venv/bin/activate`) or call `.venv/bin/uninbench` directly.
 
-To check the installation, validate the built-in planners:
+To check the installation, download the public datasets (including the published instances used to validate
+MFC, MSTC\*, MIP and LS-MCPP) and validate the built-in planners:
 
 ```bash
+scripts/fetch_datasets.sh          # creates ./datasets
 uninbench validate
 ```
 
-Every planner should print `PASS`.
+Every planner should print `PASS`. Without the downloaded data, `uninbench validate --no-published` checks the
+worked examples only.
 
 If you prefer containers, the `Dockerfile` builds a versioned environment. The image tag is recorded with every
 run:

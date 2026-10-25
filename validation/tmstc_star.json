@@ -1,0 +1,37 @@
+{
+ "planner": "tmstc_star",
+ "version": "1.0",
+ "cases": [
+  {
+   "case": "tmstc_star_bricks",
+   "planner": "tmstc_star",
+   "source": "Lu et al. (2023), Fig. 4: the minimum brick tiling of a 3 x 4 grid has 3 bricks; coverage is complete",
+   "results": [
+    {
+     "metric": "coverage_ratio",
+     "value": 0.9853556485355648,
+     "expected": 0.98,
+     "kind": "ge",
+     "rel_tol": 0.0,
+     "abs_tol": 0.0,
+     "ok": true
+    },
+    {
+     "check": "minimum_bricks_3",
+     "ok": true,
+     "message": null
+    }
+   ],
+   "errors": [],
+   "passed": true,
+   "time": 0.008605958020780236
+  }
+ ],
+ "internal_passed": true,
+ "published": {
+  "applicable": false
+ },
+ "summary": "1/1 cases passed; no published reference data",
+ "validated_at": "2026-09-29T16:49:16",
+ "passed": true
+}

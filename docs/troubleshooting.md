@@ -25,8 +25,8 @@ happens, build a replay for the instance and toggle the reconstruction and inter
 DARP iterates until the regions are balanced and connected. With clustered starts, or in maze-like graphs, it
 often cannot reach that within `max_iter` and relaxes its threshold several times. Things that help:
 
-* the `metric: geodesic` hyperparameter;
 * a smaller `max_iter`;
+* `gm_vpc`, whose geodesic Voronoi partition needs no iterations (a different, published method);
 * tuning.
 
 A planner call that exceeds `task.time_limit` is recorded as a `timeout`.
@@ -62,10 +62,24 @@ path. Copy the file to your computer, or use the web UI through an SSH tunnel.
 
 Compare planning times only within one experiment, since the hardware description is recorded per run.
 
-### The memory limit is not enforced
+### Memory limit and peak memory
 
-`memory_limit_mb` uses `RLIMIT_AS`, which Linux enforces and macOS ignores. Peak memory (`peak_rss_mb`) is recorded
-on every platform.
+`memory_limit_mb` is enforced with `RLIMIT_AS` on Linux. On macOS, which ignores `RLIMIT_AS`, the worker pool polls
+the resident set size of busy workers and stops a run that exceeds the limit (outcome `crash`, reason
+*memory limit exceeded*). Peak memory (`peak_rss_mb`) is measured per run because every run executes in a fresh
+worker process; with `inline: true` or `max_tasks_per_worker` > 1 it is left empty.
+
+### A planner is excluded with "published validation data not available"
+
+MFC, MSTC\*, MIP and LS-MCPP must reproduce published results before they may enter an experiment. Run
+`scripts/fetch_datasets.sh` (it clones the published instances to `datasets/MIP-MCPP`), or set
+`UNINBENCH_MIP_MCPP`. For exploratory runs, `require_published_validation: false` admits them anyway.
+
+### Worker processes cannot start (sockets not permitted)
+
+Workers are forked from a preloaded fork server where available. If the fork server cannot be started (for example
+in a sandbox that forbids local sockets), the pool falls back to spawning processes, which only makes starting a
+run slower.
 
 ### Matplotlib or fontconfig warnings about cache directories
 

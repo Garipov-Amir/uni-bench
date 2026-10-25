@@ -98,12 +98,13 @@ def build_report(results_dir, out_dir=None, metric: str = A.PRIMARY) -> Path:
     seedvar = A.seed_variability(recs, metric)
     tests = A.hypothesis_tests(recs, metric)
     fid = A.fidelity_table(recs)
+    stages = A.stage_table(recs)
     pareto = A.pareto_table(recs, metric)
     comp = [complexity(n) for n in sorted({r.get("planner_name") for r in recs if r.get("planner_name")})]
     scaling = {f: A.scaling_table(recs, f, metric) for f, _ in SCALING_FACTORS}
     scaling_time = {f: A.scaling_table(recs, f, "planning_time") for f, _ in SCALING_FACTORS}
     for name, rows in (("success", success), ("descriptives", desc), ("seed_variability", seedvar),
-                       ("fidelity", fid), ("pareto", pareto)):
+                       ("fidelity", fid), ("stages", stages), ("pareto", pareto)):
         if rows:
             A.write_csv(rows, out / f"{name}.csv")
     dump_json({"tests": tests, "complexity": comp, "scaling": scaling, "scaling_planning_time": scaling_time},
@@ -123,15 +124,19 @@ def build_report(results_dir, out_dir=None, metric: str = A.PRIMARY) -> Path:
                  f"{html.escape(str(hw.get('platform')))} · {hw.get('cpu_count')} CPUs</p>")
     parts.append("<nav>" + "".join(f"<a href='#{a}'>{t}</a>" for a, t in (
         ("outcomes", "Outcomes"), ("descriptives", "Descriptives"), ("tests", "Tests"), ("profiles", "Profiles"),
-        ("scaling", "Scaling"), ("tradeoffs", "Trade-offs"), ("fidelity", "Fidelity"), ("raw", "Raw data"))) + "</nav>")
+        ("scaling", "Scaling"), ("tradeoffs", "Trade-offs"), ("stages", "Stages"), ("fidelity", "Fidelity"),
+        ("raw", "Raw data"))) + "</nav>")
     parts.append("<div class='kpis'>" + "".join(
         f"<div class='kpi'><b>{outcomes.get(k, 0)}</b><span>{k.replace('_', ' ')}</span></div>"
         for k in ("success", "incomplete", "invalid", "timeout", "crash", "not_applicable")) +
         f"<div class='kpi'><b>{len(recs)}</b><span>runs recorded</span></div></div>")
     parts.append("<p>Quality metrics are aggregated over successful runs only and are always reported together with "
-                 "the success rate. Failed runs are never dropped: in rank tests and performance profiles they "
-                 "count as +∞. Stochastic planners enter the tests with their per-instance median over seeds. "
-                 "Planner names marked * are staged compositions, not original algorithms.</p>")
+                 "the success rate. Failed runs are never dropped: in rank tests, Wilcoxon tests and performance "
+                 "profiles they count as +∞. Failures on a representation flagged by the fidelity check are "
+                 "attributed to the adapter: they are listed separately and the instance is not used to compare "
+                 "that planner. Stochastic planners enter the tests with their per-instance median over seeds. "
+                 "Planner names marked * are not original published algorithms (staged compositions, benchmark "
+                 "baselines, or planners composed with a framework stage such as +pw, prioritized waiting).</p>")
 
     # ---------------------------------------------------------------- outcomes
     parts.append("<h2 id='outcomes'>Outcomes and success rates</h2>")
@@ -139,8 +144,12 @@ def build_report(results_dir, out_dir=None, metric: str = A.PRIMARY) -> Path:
                       "Share of run outcomes; not-applicable combinations are excluded from the denominator."))
     parts.append(_table(success, [("family", "family"), ("team_size", "m"), ("config", "config"),
                                   ("planner", "planner"), ("runs", "runs"), ("success_rate", "success rate"),
-                                  ("success", "success"), ("incomplete", "incompl."), ("invalid", "invalid"),
-                                  ("timeout", "timeout"), ("crash", "crash"), ("not_applicable", "n/a")]))
+                                  ("raw_success_rate", "incl. adapter"), ("success", "success"),
+                                  ("incomplete", "incompl."), ("invalid", "invalid"), ("timeout", "timeout"),
+                                  ("crash", "crash"), ("adapter_failures", "adapter-attr."),
+                                  ("not_applicable", "n/a")],
+                        "Success rate excluding failures attributed to a flagged adapter; "
+                        "‘incl. adapter’ counts them against the planner."))
     if excluded:
         parts.append("<h3>Not admitted</h3>")
         parts.append(_table(excluded[:200], [("planner", "planner"), ("instance", "instance"), ("reason", "reason")]))
@@ -172,7 +181,8 @@ def build_report(results_dir, out_dir=None, metric: str = A.PRIMARY) -> Path:
     parts.append("<h2 id='tests'>Hypothesis tests</h2>")
     parts.append("<p>Paired comparisons on the instances every planner ran on. Friedman test on per-instance ranks, "
                  "Nemenyi critical difference (α = 0.05), pairwise Wilcoxon signed-rank tests with Holm "
-                 "adjustment; effect size = median paired difference and matched-pairs rank-biserial r.</p>")
+                 "adjustment; effect size = median paired difference and matched-pairs rank-biserial r. "
+                 "A failure is the largest possible difference against the other planner.</p>")
     for t in tests:
         fr = t["friedman"]
         parts.append(f"<h3>{html.escape(str(t['family']))}, m = {t['team_size']}, {html.escape(t['config'])} "
@@ -183,7 +193,8 @@ def build_report(results_dir, out_dir=None, metric: str = A.PRIMARY) -> Path:
             parts.append(_img(P.cd_diagram(t["planners"], fr["avg_ranks"], t["cd"], "Average ranks (lower is better)",
                                            colors), "Critical-difference diagram; bars join planners whose average "
                                                     "ranks differ by less than the CD."))
-        parts.append(_table(t["pairwise"], [("a", "A"), ("b", "B"), ("n", "pairs"), ("median_diff", "median A−B"),
+        parts.append(_table(t["pairwise"], [("a", "A"), ("b", "B"), ("n", "pairs"), ("failures_a", "A failed"),
+                                            ("failures_b", "B failed"), ("median_diff", "median A−B"),
                                             ("rank_biserial", "r"), ("p", "p"), ("p_holm", "p (Holm)")]))
 
     # ---------------------------------------------------------------- profiles
@@ -223,10 +234,19 @@ def build_report(results_dir, out_dir=None, metric: str = A.PRIMARY) -> Path:
         sub = [r for r in pareto if r["family"] == fam and r["config"] == cfg]
         parts.append(_img(P.pareto_plot(sub, metric, "planning_time", f"Pareto front: {fam}, {cfg}", colors),
                           "Median quality against median planning time; dashed line = Pareto front."))
-    parts.append(_table(comp, [("planner", "planner"), ("mode", "mode"), ("sloc_core", "SLOC (core)"),
+    parts.append(_table(comp, [("planner", "planner"), ("provenance", "provenance"), ("mode", "mode"),
+                               ("sloc_core", "SLOC (core)"),
                                ("hyperparameters", "hyperparameters"), ("stages", "stages"),
                                ("external_dependencies", "external deps"), ("composition_of", "composition of")],
                         "Coarse indicators; shared modules are counted for every planner that uses them."))
+
+    # ---------------------------------------------------------------- stages
+    parts.append("<h2 id='stages'>Intermediate outputs of staged planners</h2>")
+    parts.append("<p>Every stage of a staged planner can be evaluated on its own output, e.g. the balance and "
+                 "connectivity of a partition before any route is constructed.</p>")
+    parts.append(_table(stages, [("family", "family"), ("team_size", "m"), ("planner", "planner"),
+                                 ("stage", "stage"), ("metric", "metric"), ("n", "runs"), ("median", "median"),
+                                 ("q1", "Q1"), ("q3", "Q3")]))
 
     # ---------------------------------------------------------------- fidelity
     parts.append("<h2 id='fidelity'>Representation fidelity and resolutions</h2>")
@@ -235,8 +255,11 @@ def build_report(results_dir, out_dir=None, metric: str = A.PRIMARY) -> Path:
                  "δ_p = planning resolution, δ_e = evaluation resolution.</p>")
     parts.append(_table(fid, [("family", "family"), ("planner", "planner"), ("adapter", "adapter"),
                               ("median_rel_error", "median ε̄"), ("max_rel_error", "max ε̄"),
-                              ("flagged_runs", "flagged"), ("runs", "runs"), ("delta_p", "δ_p"),
-                              ("delta_e", "δ_e")]))
+                              ("flagged_runs", "flagged"), ("adapter_failures", "adapter-attr. failures"),
+                              ("runs", "runs"), ("source_resolution", "source res."), ("delta_p", "δ_p"),
+                              ("delta_e", "δ_e")],
+                        "Source resolution: resolution of raster-derived instances, which bounds the fidelity "
+                        "any adapter can reach."))
     ul = [r for r in desc if r["metric"] in ("uncovered_representation", "uncovered_planning")]
     parts.append(_table(ul, [("family", "family"), ("team_size", "m"), ("planner", "planner"), ("metric", "loss"),
                              ("median", "median [m²]"), ("q1", "Q1"), ("q3", "Q3")],
@@ -246,7 +269,9 @@ def build_report(results_dir, out_dir=None, metric: str = A.PRIMARY) -> Path:
     parts.append("<p>All per-run records, including failed runs: <code>runs.csv</code> (flat), "
                  "<code>../runs.jsonl</code> (full records with adapter records, configurations, seeds, limits, "
                  "hardware and software). Tables: <code>success.csv</code>, <code>descriptives.csv</code>, "
-                 "<code>fidelity.csv</code>, <code>pareto.csv</code>, <code>stats.json</code>.</p>")
+                 "<code>fidelity.csv</code>, <code>stages.csv</code>, <code>pareto.csv</code>, <code>stats.json</code>. "
+                 "Peak memory is the peak resident set size of a fresh worker process at the end of planning; it "
+                 "is omitted for runs that shared a process with other runs (inline execution).</p>")
     page = (f"<!doctype html><html lang='en'><head><meta charset='utf-8'>"
             f"<meta name='viewport' content='width=device-width,initial-scale=1'><title>{html.escape(name)} report"
             f"</title><style>{CSS}</style></head><body><main>{''.join(parts)}</main></body></html>")

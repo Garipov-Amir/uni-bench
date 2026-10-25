@@ -18,7 +18,7 @@ from .grid import GridRepresentation, _attach_starts
 class GraphAdapter(Adapter):
     name = "graph"
     family = "grid"
-    version = "1.0"
+    version = "1.1"
     defaults = {"coarse": False}
 
     def convert(self, inst) -> GridRepresentation:
@@ -66,8 +66,11 @@ class GraphAdapter(Adapter):
                     raise ValueError(f"edge ({a},{b}) is not between 4-neighbours")
                 cedges.append((a, b))
             edges = np.array(sub, dtype=int).reshape(-1, 2)
+            vw = np.ones(rows * cols)
+            for key, val in (g.get("vertex_weights") or {}).items():
+                vw[int(key)] = float(val)
             coarse = {"grid": RasterGrid(x0, y0, s, cols, rows), "cells": cfree,
-                      "edges": np.array(cedges, dtype=int).reshape(-1, 2)}
+                      "edges": np.array(cedges, dtype=int).reshape(-1, 2), "weights": vw.reshape(rows, cols)}
             rep = GridRepresentation(inst.team, inst.free, dict(self.params), grid, cells, edges,
                                      np.full(len(edges), s / 2), cspace, coarse)
             used = cells

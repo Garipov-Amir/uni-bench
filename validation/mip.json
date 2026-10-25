@@ -1,0 +1,46 @@
+{
+ "planner": "mip",
+ "version": "1.0",
+ "cases": [
+  {
+   "case": "mip_open_grid_optimum",
+   "planner": "mip",
+   "source": "Tang & Ma (2023): the MIP finds an optimal rooted tree cover; on an open 4 x 4 terrain graph with two robots in opposite corners the optimal largest tree has 7 edges (8 vertices each)",
+   "results": [
+    {
+     "metric": "coverage_ratio",
+     "value": 0.981974921630094,
+     "expected": 0.98,
+     "kind": "ge",
+     "rel_tol": 0.0,
+     "abs_tol": 0.0,
+     "ok": true
+    },
+    {
+     "check": "trees_cover_all_cells",
+     "ok": true,
+     "message": null
+    },
+    {
+     "check": "tree_weight_bound",
+     "ok": true,
+     "message": null
+    }
+   ],
+   "errors": [],
+   "passed": true,
+   "time": 0.11166887497529387
+  }
+ ],
+ "internal_passed": true,
+ "published": {
+  "applicable": true,
+  "available": false,
+  "passed": false,
+  "cases": [],
+  "reason": "published instances not found: run scripts/fetch_datasets.sh (clones github.com/reso1/MIP-MCPP to datasets/MIP-MCPP) or set UNINBENCH_MIP_MCPP"
+ },
+ "summary": "1/1 cases passed; published validation data not available",
+ "validated_at": "2026-09-29T16:49:16",
+ "passed": false
+}

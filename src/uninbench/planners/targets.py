@@ -16,7 +16,6 @@ from scipy.spatial import cKDTree
 
 from ..trajectory import SERVICE, TRANSIT, TrajectoryBuilder, TrajectorySet
 from .base import HyperParam, Manifest, PlanContext, Planner, PlanResult
-from .deconflict import maybe_deconflict
 
 
 def balanced_kmeans(pts: np.ndarray, m: int, rng, iters: int = 50, balance: float = 0.5) -> np.ndarray:
@@ -110,13 +109,15 @@ def two_opt_path(P: np.ndarray, rounds: int, deadline=None) -> np.ndarray:
 class KMeansTSP(Planner):
     manifest = Manifest(
         name="kmeans_tsp",
-        version="1.0",
+        version="1.1",
         reference="Target-based baseline: balanced k-means partition + TSP (NN + 2-opt) per robot",
         family="target",
         adapter="target",
         adapter_params={"lattice": "square"},
-        constraints={"multi_robot", "return_to_depot", "deconfliction"},
+        constraints={"multi_robot", "return_to_depot"},
         stochastic=True,
+        provenance="baseline",
+        composition_of=["balanced k-means", "nearest-neighbour + 2-opt tour"],
         distinguishes_service_transit=False,
         hyperparameters=[
             HyperParam("kmeans_iters", "int", 50, low=5, high=300, log=True, doc="balanced k-means iterations"),
@@ -166,8 +167,7 @@ class KMeansTSP(Planner):
                 b.follow(rep.transit(r).path(b.pos, depot), SERVICE if not self.manifest.distinguishes_service_transit
                          else TRANSIT)
             ts.add(b.build())
-        ts, dinfo = maybe_deconflict(ts, rep, ctx)
         layers = rep.layers()
         layers["clusters"] = {"type": "point_labels", "coords": np.round(pts, 4).tolist(), "labels": lab.tolist()}
         return PlanResult(ts, native={rid: t.tolist() for rid, t in tours.items()}, layers=layers,
-                          info={"clusters": k_eff, **dinfo})
+                          info={"clusters": k_eff})

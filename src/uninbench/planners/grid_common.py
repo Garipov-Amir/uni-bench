@@ -240,13 +240,12 @@ def cell_routes_to_trajectories(rep, routes: dict, manifest, ctx) -> TrajectoryS
                 for c in connect_cells(rep, cur, st["cell"])[1:]:
                     x, y = rep.center(c)
                     b.move_to(float(x), float(y), TRANSIT)
-            back = rep.transit(r).path(b.pos, depot)
+            if st is not None and np.hypot(depot[0] - sx, depot[1] - sy) < 1e-9:
+                back = np.asarray(st["path"], dtype=float)[::-1]  # the adapter's start connection, reversed
+            else:
+                back = rep.transit(r).path(b.pos, depot)
             b.follow(back, TRANSIT)
         ts.add(b.build())
-    from .deconflict import maybe_deconflict
-
-    ts, info = maybe_deconflict(ts, rep, ctx)
-    ts.metadata.update(info)
     return ts
 
 

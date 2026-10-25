@@ -419,7 +419,7 @@ class PlannersPane(Pane):
             v = m.get("validation")
             val = Text(v["summary"], style="green" if v["passed"] else "red") if v else Text("not validated",
                                                                                            style="dim")
-            tbl.add_row(name + (" *" if m.get("composition_of") else ""), m["family"], m["mode"],
+            tbl.add_row(name + (" *" if m.get("provenance", "original") != "original" else ""), m["family"], m["mode"],
                         "stochastic" if m["stochastic"] else "deterministic", val, key=name)
 
     @on(DataTable.RowHighlighted, "#pl-table")
@@ -441,8 +441,8 @@ class PlannersPane(Pane):
         from rich.console import Group
 
         head = Text.from_markup(
-            f"[b]{m['name']}[/b] {m['version']}" + (" [yellow](staged composition)[/]" if m.get("composition_of")
-                                                   else "") +
+            f"[b]{m['name']}[/b] {m['version']}" + (f" [yellow]({m.get('provenance')})[/]"
+                                                   if m.get("provenance", "original") != "original" else "") +
             f"\n{m['description']}\n[dim]{m['reference']}[/]\n\n"
             f"[dim]family[/] {m['family']}   [dim]adapter[/] {m['adapter']} {m['adapter_params']}\n"
             f"[dim]constraints[/] {', '.join(m['constraints']) or '–'}\n"

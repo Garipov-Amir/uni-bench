@@ -24,13 +24,17 @@ Every line of `runs.jsonl` is one run:
 |-------|---------|
 | `run_id` | deterministic id (instance hash, planner, version, configuration, seed, adapter parameters, limits, factors) |
 | `instance_id`, `base_instance`, `instance_hash`, `family`, `split`, `factors`, `team_size` | what was solved |
-| `planner`, `planner_name`, `planner_version`, `planner_mode`, `composition_of`, `stochastic` | who solved it |
+| `planner`, `planner_name`, `planner_version`, `planner_mode`, `stochastic` | who solved it |
+| `provenance`, `composition_of`, `framework_stages` | `original`, `composition` or `baseline`; the components of a composition; framework stages composed with the planner (e.g. `prioritized_waiting`) |
 | `config_label`, `config`, `config_hash`, `seed` | how: `default`, `tuned` or `custom`, the hyperparameters, the seed |
 | `outcome`, `reason`, `warnings`, `traceback` | result classification (see [Evaluation](evaluation.md#outcomes)) |
+| `failure_attribution` | for failures: `adapter` (flagged representation or adapter error) or `planner` |
 | `metrics`, `per_robot` | all metrics (see [Evaluation](evaluation.md#metrics)) |
 | `planning_time`, `planning_times`, `peak_rss_mb`, `adapter_time`, `eval_time` | computation |
+| `memory` | `isolated` (fresh worker process), process peak after the adapter and after planning, planning growth |
 | `adapter` | the transformation record: parameters, runtime, fidelity (`rel_error`, `flagged`) |
 | `delta_p`, `delta_e`, `sensitivity` | planning and evaluation resolutions, and the resolution check |
+| `source_resolution` | resolution of raster-derived instances (bounds the achievable fidelity) |
 | `stage_metrics`, `stage_outputs`, `planner_info` | intermediate evaluations of staged planners, e.g. DARP partition balance and convergence |
 | `limits`, `hardware`, `software`, `profiles`, `started`, `finished` | reproducibility information |
 | `artifacts` | paths of the stored trajectories, coverage map and derived instance |
@@ -59,8 +63,12 @@ The report page is self-contained and can be mailed or archived. Its sections ar
 This section shows the share of each outcome per planner and team size, and a table of counts.
 
 * Not-applicable combinations are excluded from the denominator.
+* The success rate excludes failures attributed to a flagged adapter (column *adapter-attr.*); *incl. adapter*
+  counts them against the planner.
 * Quality metrics elsewhere in the report are computed on successful runs only, and always appear together with
   the success rate. A planner therefore cannot look better by failing on hard instances.
+* Planner names marked `*` are not original published algorithms (compositions, baselines, `+pw` planners
+  composed with the framework's deconfliction stage).
 
 ### Descriptive statistics
 
@@ -81,8 +89,11 @@ size and configuration:
 * The **critical-difference diagram** (Nemenyi, α = 0.05) places planners by average rank, where lower is better.
   A thick bar joins planners whose average ranks differ by less than the critical difference (CD); they are *not*
   significantly different.
-* **Pairwise Wilcoxon signed-rank tests** use Holm-adjusted p-values. The effect sizes are the median paired
-  difference and the matched-pairs rank-biserial correlation *r* (−1 … 1).
+* **Pairwise Wilcoxon signed-rank tests** use Holm-adjusted p-values. A failure counts as the largest possible
+  difference in favour of the other planner (both failing is a tie), consistent with the Friedman ranks; the
+  table lists how many pairs each planner failed. The effect sizes are the median paired difference and the
+  matched-pairs rank-biserial correlation *r* (−1 … 1).
+* Instances on which a planner's failure is attributed to a flagged adapter are left out of its comparisons.
 
 ### Performance profiles
 
@@ -104,14 +115,20 @@ density, with 95 % bootstrap bands. For planning time the plots use log–log ax
 The **Pareto front** plots the median quality T/T_LB against the median planning time per family; the dashed
 line joins the non-dominated planners.
 
-The complexity table lists coarse indicators per planner: source lines of the core algorithm, number of
-hyperparameters, number of pipeline stages, and external dependencies. They make the trade-off between
+The complexity table lists coarse indicators per planner: provenance, source lines of the core algorithm, number
+of hyperparameters, number of pipeline stages, and external dependencies (e.g. the MILP solver of `mip`, `mcfs`). They make the trade-off between
 improvement and complexity explicit.
+
+### Intermediate outputs of staged planners
+
+Every numeric stage metric (median and IQR per family, team size and planner), e.g. partition balance and
+connectivity before any route is built, tour-split imbalance, or the makespan before and after local search (R6).
 
 ### Representation fidelity and resolutions
 
 For each planner and adapter, this section gives the median and maximum relative reconstruction error ε̄, the
-number of flagged runs, and the planning and evaluation resolutions used. The uncovered area is split into
+number of flagged runs and of adapter-attributed failures, the source resolution of raster-derived instances, and
+the planning and evaluation resolutions used. The uncovered area is split into
 **representation loss** and **planning loss**.
 
 ### Raw data
@@ -119,7 +136,7 @@ number of flagged runs, and the planning and evaluation resolutions used. The un
 The report directory also contains:
 
 * `runs.csv`: flattened runs;
-* `success.csv`, `descriptives.csv`, `seed_variability.csv`, `fidelity.csv`, `pareto.csv`;
+* `success.csv`, `descriptives.csv`, `seed_variability.csv`, `fidelity.csv`, `stages.csv`, `pareto.csv`;
 * `stats.json`: test results, complexity and scaling data.
 
 ## Replays

@@ -20,7 +20,7 @@ python3 -m venv .venv
 source .venv/bin/activate          # or call .venv/bin/uninbench directly
 ```
 
-It requires Python 3.10 or newer. `uninbench validate` should print `PASS` for every planner.
+It requires Python 3.10 or newer. After `scripts/fetch_datasets.sh`, `uninbench validate` should print `PASS` for every planner.
 
 ## Start
 
@@ -52,16 +52,39 @@ Or try everything at once with `uninbench demo --out demo`.
 
 ## What's included
 
-* **Instance families:** AreaCoverage polygons (IF1), agricultural fields (IF2), paired empty/furnished rooms
-  (IF3), SafeLog connectivity graphs (IF4) and a seeded synthetic generator (IF5).
-* **Planners:** STC, MSTC, DARP+STC, a DARP + back-and-forth composition, boustrophedon swaths, boustrophedon
-  cellular decomposition, and a k-means/TSP target baseline. You can add your own.
+* **Instance families:** AreaCoverage polygons (IF1), the 350 Fields2Benchmark fields (IF2), paired
+  empty/furnished rooms (IF3), the 21 SafeLog connectivity graphs (IF4) and a seeded synthetic generator (IF5).
+  `scripts/fetch_datasets.sh` downloads the public datasets.
+* **Planners (reimplementations of published algorithms):** STC, MSTC, MSTC\*, TMSTC\*, MFC, MIP, LS-MCPP, DARP,
+  GM-VPC (grid/graph); CRC of Karapetyan et al. and SCoPP (geometric); MCFS (swath/isoline).
+  MFC, MSTC\*, MIP and LS-MCPP are validated against published results.
+* **Compositions and baselines** (always marked `*`): DARP + back-and-forth, boustrophedon swaths, boustrophedon
+  cells with a contiguous split, k-means/TSP and a genetic algorithm on coverage targets. You can add your own.
 * **Profiles:** core; agricultural (turning radius, capacity, headlands); deconfliction; heterogeneous teams.
 * **Evaluation:** coverage against the reachable coverable set F\*, split into representation loss and planning
   loss. Also overlap, makespan normalized by a lower bound, turns, workload balance, collisions and conflicts,
   with a resolution-sensitivity check.
 * **Statistics:** medians with bootstrap CIs, Wilcoxon + Holm, Friedman + Nemenyi critical-difference diagrams,
   Dolan–Moré performance profiles, scaling exponents and Pareto fronts.
+
+## Design requirements and where they are implemented
+
+The framework implements the design of the accompanying thesis (Chapter 4). Requirements R1–R12:
+
+| | Requirement | Implementation |
+|---|---|---|
+| R1 | one physical ground truth of the highest geometric fidelity | `instance/` (vector canonical instance, content hash), `instance/coverable.py` (F\*) |
+| R2 | native representations, explicit and recorded conversions | `adapters/` (grid, graph, geometric, swath, target; transformation record ρ_i) |
+| R3 | environmental equivalence verified; representation loss separated | `adapters/base.py` (fidelity ε̄, flag), `reconstruction.py`, `evaluator/` (U_rep / U_plan), `runner/worker.py` (failure attribution) |
+| R4 | only planners of the same task are compared | `planners/base.py` (manifest, admission) |
+| R5 | metrics from executed trajectories only | `trajectory.py` (normal form, re-timing), `evaluator/` |
+| R6 | exchangeable, separately evaluated stages | `planners/base.py` (staged mode), stage metrics in reports, provenance marking of compositions |
+| R7 | diverse, controlled instances | `datasets/` (IF1–IF5), `instance/team.py` (team size and start configuration) |
+| R8 | equal tuning without overfitting | `instance/splits.py` (stratified splits), `tuning/` (Bayesian optimisation, frozen θ\*) |
+| R9 | reimplementations validated before use | `validation/` (worked examples, published results), runner gate |
+| R10 | evaluation resolution finer than and independent of planning resolution; sensitivity | `evaluator/evaluate.py` (δ_e/2 check), `runner/experiment.py` (δ_e < δ_p) |
+| R11 | deterministic and stochastic planners with statistical support | `runner/` (seeds, repetitions, fresh representation per call, per-run memory), `reporting/` |
+| R12 | optional domain constraints | `profiles.py`, `planners/execution.py` (framework deconfliction stage as a composition) |
 
 ## Documentation
 

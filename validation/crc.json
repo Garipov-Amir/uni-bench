@@ -1,0 +1,46 @@
+{
+ "planner": "crc",
+ "version": "1.0",
+ "cases": [
+  {
+   "case": "crc_route_clustering",
+   "planner": "crc",
+   "source": "Karapetyan et al. (2017): the Eulerian tour of the Reeb graph covers every boustrophedon cell; the FHK split gives every robot a sub-tour from and to the start",
+   "results": [
+    {
+     "metric": "coverage_ratio",
+     "value": 0.9789983844911146,
+     "expected": 0.9,
+     "kind": "ge",
+     "rel_tol": 0.0,
+     "abs_tol": 0.0,
+     "ok": true
+    },
+    {
+     "metric": "static_collision_time",
+     "value": 0.0,
+     "expected": 0.0,
+     "kind": "eq",
+     "rel_tol": 0.0,
+     "abs_tol": 1e-09,
+     "ok": true
+    },
+    {
+     "check": "every_cell_in_tour",
+     "ok": true,
+     "message": null
+    }
+   ],
+   "errors": [],
+   "passed": true,
+   "time": 0.027057832980062813
+  }
+ ],
+ "internal_passed": true,
+ "published": {
+  "applicable": false
+ },
+ "summary": "1/1 cases passed; no published reference data",
+ "validated_at": "2026-09-29T16:49:15",
+ "passed": true
+}

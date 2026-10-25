@@ -15,6 +15,7 @@ from ..instance.model import EvalSettings, Instance, TaskSpec
 from ..instance.splits import assign_splits, load_instances
 from ..instance.team import with_team
 from ..planners import admission, get_planner
+from ..planners.execution import framework_stages
 from ..profiles import apply_profile, profile_adapter_params
 from ..util import content_hash, dump_json, load_json, seed_list, to_jsonable
 from .config import ExperimentConfig, load_config
@@ -47,7 +48,7 @@ def resolve_instances(cfg: ExperimentConfig, split: str | None = None) -> list[I
             for i in insts:
                 i.family = spec["family"]
         if any("split" not in i.metadata for i in insts):
-            splits = assign_splits(insts, spec.get("tuning_fraction", 0.2), spec.get("stratify"))
+            splits = assign_splits(insts, spec.get("tuning_fraction", 0.2), spec.get("stratify", "auto"))
             for i in insts:
                 i.metadata.setdefault("split", splits[i.id])
         want = spec.get("split", split)
@@ -94,15 +95,59 @@ def resolve_config(label: str, man, spec, cfg: ExperimentConfig, family: str):
     raise ValueError(f"unknown configuration label {label!r}")
 
 
+def validation_dir(cfg: ExperimentConfig) -> Path:
+    return Path(cfg.validation_dir or (Path(cfg.output_dir).parent / "validation"))
+
+
+_VALIDATION: dict = {}
+
+
 def validation_status(cfg: ExperimentConfig, planner: str):
+    """(passed, summary) of the planner's validation report (R9).
+
+    A missing report, or one for another planner version, is produced on the
+    spot by running the planner's validation cases; planners that fail are
+    excluded from the experiment and the report documents the deviation.
+    """
     if not cfg.require_validation:
         return True, None
-    vd = cfg.validation_dir or (Path(cfg.output_dir).parent / "validation")
-    p = Path(vd) / f"{planner}.json"
-    if not p.exists():
-        return False, f"no validation report at {p}"
-    rep = load_json(p)
-    return bool(rep.get("passed")), rep.get("summary")
+    man = get_planner(planner).manifest
+    p = validation_dir(cfg) / f"{man.name}.json"
+    key = (str(p), man.version)
+    if key not in _VALIDATION:
+        from ..validation import validate_planner, validation_passed
+
+        rep = load_json(p) if p.exists() else None
+        if rep is None or rep.get("version") != man.version or "internal_passed" not in rep:
+            log.info("validating %s %s (report: %s)", man.name, man.version, p)
+            rep = validate_planner(man.name, p.parent)
+        ok = validation_passed(rep, bool(cfg.raw.get("require_published_validation", True)))
+        _VALIDATION[key] = (ok, rep.get("summary"))
+    return _VALIDATION[key]
+
+
+def adapter_for(man, inst: Instance, cfg: ExperimentConfig) -> tuple[str, dict]:
+    """Adapter name and parameters for a planner on an instance (fixed per experiment and family)."""
+    if cfg.raw.get("native_graph", True) and man.adapter == "grid" and inst.metadata.get("graph"):
+        return "graph", {"coarse": bool(man.adapter_params.get("coarse", False))}
+    ap = {**man.adapter_params, **profile_adapter_params(inst, man.adapter), **cfg.adapters.get(man.adapter, {})}
+    return man.adapter, ap
+
+
+def check_resolutions(inst: Instance, adapter: str, ap: dict):
+    """R10: the evaluation resolution must be finer than the planning resolution."""
+    de = inst.eval_resolution()
+    if adapter == "grid":
+        r = ap.get("resolution", "auto")
+        dp = float(ap.get("resolution_factor", 1.0)) * inst.min_width if r in ("auto", None) else float(r)
+    elif adapter == "graph":
+        g = inst.metadata["graph"]
+        dp = float(g["cell_size"]) / (2 if ap.get("coarse") else 1)  # sub-cells of the graph's vertices
+    else:
+        return
+    if not de < dp:
+        raise ValueError(f"{inst.id}: evaluation resolution {de:.4g} m is not finer than the planning resolution "
+                         f"{dp:.4g} m; lower evaluation.resolution_factor or raise the planning resolution")
 
 
 def build_tasks(cfg: ExperimentConfig, instances: list[Instance], out_dir: Path):
@@ -127,20 +172,24 @@ def build_tasks(cfg: ExperimentConfig, instances: list[Instance], out_dir: Path)
                     man = cls.manifest
                     ok, why = validation_status(cfg, man.name)
                     if not ok:
-                        excluded.append({"planner": spec.display, "reason": f"failed validation: {why}"})
+                        if (spec.display, "validation") not in warned:
+                            excluded.append({"planner": spec.display, "reason": f"failed validation: {why}"})
+                            warned.add((spec.display, "validation"))
                         continue
-                    status, why = admission(man, inst)
+                    dstage = cfg.raw.get("deconfliction_stage")
+                    status, why = admission(man, inst, dstage)
                     if status == "excluded":
                         excluded.append({"instance": inst.id, "planner": spec.display, "reason": why})
                         continue
-                    factors = [None] if man.adapter not in ("grid",) else res_factors
+                    adapter, ap0 = adapter_for(man, inst, cfg)
+                    factors = [None] if adapter != "grid" else res_factors
                     for fac in factors:
-                        ap = {**man.adapter_params, **profile_adapter_params(inst, man.adapter),
-                              **cfg.adapters.get(man.adapter, {})}
+                        ap = dict(ap0)
                         extra = {"start_config": sc}
                         if fac is not None:
                             ap["resolution_factor"] = float(ap.get("resolution_factor", 1.0)) * float(fac)
                             extra["planning_resolution"] = float(fac)
+                        check_resolutions(inst, adapter, ap)
                         for label in spec.configs:
                             params, clabel = resolve_config(label, man, spec, cfg, inst.family)
                             if params is None:
@@ -154,15 +203,17 @@ def build_tasks(cfg: ExperimentConfig, instances: list[Instance], out_dir: Path)
                             if status == "not_applicable":
                                 seeds = seeds[:1]
                             for seed in seeds:
+                                stages = framework_stages(man, inst, dstage)
                                 rid = content_hash({"i": inst.hash, "p": man.name, "v": man.version, "c": params,
-                                                    "l": clabel, "s": seed, "a": ap, "pl": spec.display,
-                                                    "t": time_limit, "f": extra})
+                                                    "l": clabel, "s": seed, "a": ap, "ad": adapter,
+                                                    "pl": spec.display, "t": time_limit, "f": extra, "st": stages})
                                 task = RunTask(run_id=rid, experiment=cfg.name, instance=inst_dict, planner=spec.name,
                                                planner_label=spec.display, params=params, config_label=clabel,
-                                               seed=int(seed), repetitions=reps, adapter=man.adapter,
+                                               seed=int(seed), repetitions=reps, adapter=adapter,
                                                adapter_params=ap, eps_max=float(cfg.eps_max), time_limit=time_limit,
                                                memory_limit_mb=mem, profiles=list(inst.task.profiles), factors=extra,
-                                               output_dir=str(out_dir), store=dict(cfg.store))
+                                               output_dir=str(out_dir), store=dict(cfg.store),
+                                               deconfliction_stage=dstage)
                                 if status == "not_applicable":
                                     na_records.append(not_applicable_record(task, why))
                                 else:
@@ -238,7 +289,7 @@ def run_experiment(config, workers: int | None = None, inline: bool | None = Non
             run_inline(tasks, on_result, on_progress)
         else:
             mem = cfg.task.get("memory_limit_mb", TaskSpec().memory_limit_mb)
-            pool = WorkerPool(n_workers, mem, float(cfg.grace))
+            pool = WorkerPool(n_workers, mem, float(cfg.grace), cfg.raw.get("max_tasks_per_worker", 1))
             try:
                 pool.run(tasks, on_result, on_progress)
             finally:
